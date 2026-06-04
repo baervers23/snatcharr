@@ -1,0 +1,72 @@
+services:
+  snatcharr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: snatcharr
+    restart: unless-stopped
+#    ports: # uncomment to bind
+#      - "${PORT:-3434}:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?NEXTAUTH_SECRET is required}
+      - DATABASE_URL=${DATABASE_URL:file:./data/snatcharr.db}
+      - DATA_DIR=/app/data
+      - DOWNLOAD_DIR=/app/downloads
+      - REDIS_URL=${REDIS_URL:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
+    volumes:
+      - ${DATA_DIR_HOST:-./snatcharr/data}:/app/data
+      - ${DOWNLOAD_DIR_HOST:-./snatcharr/downloads}:/app/downloads
+    depends_on:
+      redis:
+        condition: service_started
+        required: false
+    networks:
+      - snatcharr
+      - arr_stack
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── Redis (optional — for rate limiting + session cache) ──────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: snatcharr_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - ./snatcharr/redis:/data
+    networks:
+      - snatcharr
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - full
+
+# volumes:
+#   snatcharr_data:
+#     driver: local
+#   snatcharr_downloads:
+#     driver: local
+#   snatcharr_redis:
+#    driver: local
+
+networks:
+  snatcharr:
+    name: snatcharr
+    driver: bridge
+  arr_stack:
+    name: arr_stack
+    driver: bridge
