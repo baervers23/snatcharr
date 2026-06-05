@@ -1,11 +1,11 @@
 "use client";
 
+import type { DownloadClient, ExternalApp, Indexer } from "@/lib/db/schema";
+import type { AppSettings } from "@/lib/db/settings";
+import { cn } from "@/lib/utils";
+import { Download, Layers, Loader2, Plus, Save, Search, Settings, Shield, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Settings, Shield, Search, Download, Layers, Save, Loader2, Plus, Trash2, CheckCircle, XCircle, RefreshCw } from "lucide-react";
-import { cn, maskApiKey } from "@/lib/utils";
-import type { AppSettings } from "@/lib/db/settings";
-import type { Indexer, DownloadClient, ExternalApp } from "@/lib/db/schema";
 
 type SettingsTab = "general" | "security" | "indexers" | "clients" | "apps";
 
@@ -253,7 +253,7 @@ function SecurityTab({ settings, onSave, saving }: { settings: Partial<AppSettin
 function IndexersTab({ indexers, onRefresh }: { indexers: Indexer[]; onRefresh: () => void }) {
   const [showAdd, setShowAdd] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", prowlarrUrl: "http://localhost:9696", apiKey: "", categories: "" });
+  const [form, setForm] = useState({ name: "", url: "http://localhost:9696", apiKey: "", categories: "" });
   const [saving, setSaving] = useState(false);
 
   async function addIndexer() {
@@ -267,7 +267,7 @@ function IndexersTab({ indexers, onRefresh }: { indexers: Indexer[]; onRefresh: 
       if (!response.ok) throw new Error();
       toast.success("Indexer added");
       setShowAdd(false);
-      setForm({ name: "", prowlarrUrl: "http://localhost:9696", apiKey: "", categories: "" });
+      setForm({ name: "", url: "http://localhost:9696", apiKey: "", categories: "" });
       onRefresh();
     } catch {
       toast.error("Failed to add indexer");
@@ -324,7 +324,7 @@ function IndexersTab({ indexers, onRefresh }: { indexers: Indexer[]; onRefresh: 
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Prowlarr URL</label>
-              <input className="nv-input w-full" value={form.prowlarrUrl} onChange={(e) => setForm({ ...form, prowlarrUrl: e.target.value })} placeholder="http://localhost:9696" />
+              <input className="nv-input w-full" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="http://localhost:9696" />
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">API Key</label>
@@ -337,7 +337,7 @@ function IndexersTab({ indexers, onRefresh }: { indexers: Indexer[]; onRefresh: 
           </div>
           <div className="flex gap-2 justify-end">
             <button onClick={() => setShowAdd(false)} className="px-4 py-1.5 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
-            <button onClick={addIndexer} disabled={saving || !form.prowlarrUrl || !form.apiKey} className="flex items-center gap-2 px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50">
+            <button onClick={addIndexer} disabled={saving || !form.url || !form.apiKey} className="flex items-center gap-2 px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50">
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Save
             </button>
           </div>
@@ -353,7 +353,7 @@ function IndexersTab({ indexers, onRefresh }: { indexers: Indexer[]; onRefresh: 
               <StatusDot status={idx.lastStatus ?? "unknown"} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">{idx.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{idx.prowlarrUrl}</p>
+                <p className="text-xs text-muted-foreground truncate">{idx.url}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -553,7 +553,7 @@ function AppsTab({ apps, onRefresh }: { apps: ExternalApp[]; onRefresh: () => vo
               <label className="text-xs text-muted-foreground mb-1 block">Type</label>
               <select className="nv-input w-full" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as typeof form.type })}>
                 <option value="jellyfin">Jellyfin</option>
-                <option value="jellyseerr">Jellyseerr</option>
+                <option value="seerr">Seerr</option>
                 <option value="sonarr">Sonarr</option>
                 <option value="radarr">Radarr</option>
                 <option value="lidarr">Lidarr</option>

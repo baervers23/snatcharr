@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { indexers } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 export async function GET() {
@@ -19,7 +19,8 @@ export async function GET() {
 
 const indexerSchema = z.object({
   name: z.string().min(1),
-  prowlarrUrl: z.string().url(),
+  type: z.string().min(1),
+  url: z.string().url(),
   apiKey: z.string().min(1),
   categories: z.string().default(""),
   priority: z.number().int().default(0),
@@ -39,7 +40,8 @@ export async function POST(req: Request) {
 
   const [result] = await db.insert(indexers).values({
     name: parsed.data.name,
-    prowlarrUrl: parsed.data.prowlarrUrl,
+    type: parsed.data.type,
+    url: parsed.data.url,
     apiKey: parsed.data.apiKey,
     categories: JSON.stringify(cats),
     priority: parsed.data.priority,

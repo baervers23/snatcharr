@@ -13,7 +13,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const indexer = await db.query.indexers.findFirst({ where: eq(indexers.id, id) });
   if (!indexer) return NextResponse.json({ error: "Indexer not found" }, { status: 404 });
 
-  const result = await testProwlarrConnection(indexer.prowlarrUrl, indexer.apiKey);
+  const result = await testProwlarrConnection(indexer.url, indexer.apiKey);
 
   await db.update(indexers).set({
     lastCheckedAt: new Date(),

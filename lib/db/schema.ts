@@ -1,20 +1,17 @@
-import { sql } from "drizzle-orm";
-import {
-  integer,
-  text,
-  sqliteTable,
-  real,
-  blob,
-} from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 export const users = sqliteTable("users", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   username: text("username").notNull().unique(),
   email: text("email").unique(),
   passwordHash: text("password_hash").notNull(),
-  role: text("role", { enum: ["admin", "user"] }).notNull().default("user"),
+  role: text("role", { enum: ["admin", "user"] })
+    .notNull()
+    .default("user"),
   maxGrabsPerDay: integer("max_grabs_per_day").default(20),
   maxGrabsTotal: integer("max_grabs_total"),
   showGrabsPublic: integer("show_grabs_public", { mode: "boolean" }).default(false),
@@ -31,7 +28,9 @@ export const users = sqliteTable("users", {
 });
 
 export const sessions = sqliteTable("sessions", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -45,15 +44,20 @@ export const sessions = sqliteTable("sessions", {
 // ─── Indexers (Prowlarr) ──────────────────────────────────────────────────────
 
 export const indexers = sqliteTable("indexers", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
-  prowlarrUrl: text("prowlarr_url").notNull(),
+  type: text("type").notNull(),
+  url: text("url").notNull(),
   apiKey: text("api_key").notNull(),
   categories: text("categories").notNull().default("[]"), // JSON array of category IDs
   enabled: integer("enabled", { mode: "boolean" }).default(true),
   priority: integer("priority").default(0),
   lastCheckedAt: integer("last_checked_at", { mode: "timestamp" }),
-  lastStatus: text("last_status", { enum: ["ok", "warning", "error", "unknown"] }).default("unknown"),
+  lastStatus: text("last_status", { enum: ["ok", "warning", "error", "unknown"] }).default(
+    "unknown",
+  ),
   lastError: text("last_error"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
@@ -66,16 +70,22 @@ export const indexers = sqliteTable("indexers", {
 // ─── Download Clients ─────────────────────────────────────────────────────────
 
 export const downloadClients = sqliteTable("download_clients", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
-  type: text("type", { enum: ["sabnzbd", "nzbget", "nzbvortex"] }).notNull().default("sabnzbd"),
+  type: text("type", { enum: ["sabnzbd", "nzbget", "nzbvortex"] })
+    .notNull()
+    .default("sabnzbd"),
   url: text("url").notNull(),
   apiKey: text("api_key").notNull(),
   category: text("category").default("snatcharr"),
   enabled: integer("enabled", { mode: "boolean" }).default(true),
   priority: integer("priority").default(0),
   lastCheckedAt: integer("last_checked_at", { mode: "timestamp" }),
-  lastStatus: text("last_status", { enum: ["ok", "warning", "error", "unknown"] }).default("unknown"),
+  lastStatus: text("last_status", { enum: ["ok", "warning", "error", "unknown"] }).default(
+    "unknown",
+  ),
   lastError: text("last_error"),
   createdAt: integer("created_at", { mode: "timestamp" })
     .notNull()
@@ -88,10 +98,12 @@ export const downloadClients = sqliteTable("download_clients", {
 // ─── External Apps ────────────────────────────────────────────────────────────
 
 export const externalApps = sqliteTable("external_apps", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   type: text("type", {
-    enum: ["jellyfin", "jellyseerr", "lidarr", "radarr", "sonarr", "organizr"],
+    enum: ["jellyfin", "seerr", "lidarr", "radarr", "sonarr", "organizr"],
   }).notNull(),
   url: text("url").notNull(),
   apiKey: text("api_key"),
@@ -107,7 +119,9 @@ export const externalApps = sqliteTable("external_apps", {
 // ─── Grabs ────────────────────────────────────────────────────────────────────
 
 export const grabs = sqliteTable("grabs", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -155,7 +169,9 @@ export const grabs = sqliteTable("grabs", {
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 export const settings = sqliteTable("settings", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   key: text("key").notNull().unique(),
   value: text("value").notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" })
@@ -166,7 +182,9 @@ export const settings = sqliteTable("settings", {
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
 export const auditLog = sqliteTable("audit_log", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   action: text("action").notNull(),
   details: text("details"),

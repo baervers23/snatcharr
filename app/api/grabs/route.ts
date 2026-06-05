@@ -1,11 +1,11 @@
-import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { grabs, downloadClients, indexers } from "@/lib/db/schema";
+import { downloadClients, grabs, indexers } from "@/lib/db/schema";
 import { getSetting } from "@/lib/db/settings";
-import { searchProwlarr, downloadNzb } from "@/lib/prowlarr";
+import { downloadNzb } from "@/lib/prowlarr";
 import { addNzbToSabnzbd } from "@/lib/sabnzbd";
-import { eq, desc, and, or, isNull } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const grabSchema = z.object({
@@ -30,8 +30,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const { guid, downloadUrl, title, size, indexer: indexerName, category, categoryId, ageSeconds, downloadClientId } =
-    parsed.data;
+  const {
+    guid,
+    downloadUrl,
+    title,
+    size,
+    indexer: indexerName,
+    category,
+    categoryId,
+    ageSeconds,
+    downloadClientId,
+  } = parsed.data;
 
   // Check daily grab limit
   const maxPerDay = await getSetting("maxGrabsPerUserPerDay");
@@ -39,12 +48,11 @@ export async function POST(req: Request) {
   todayStart.setHours(0, 0, 0, 0);
 
   const todayGrabs = await db.query.grabs.findMany({
-    where: and(
-      eq(grabs.userId, session.user.id),
-    ),
+    where: and(eq(grabs.userId, session.user.id)),
   });
   const todayCount = todayGrabs.filter(
-    (g) => g.queuedAt >= todayStart && !["failed", "expired"].includes(g.status ?? ""),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (g: any) => g.queuedAt >= todayStart && !["failed", "expired"].includes(g.status ?? ""),
   ).length;
 
   if (todayCount >= maxPerDay) {
@@ -55,10 +63,9 @@ export async function POST(req: Request) {
   }
 
   // Find download client
-  let client =
-    downloadClientId
-      ? await db.query.downloadClients.findFirst({ where: eq(downloadClients.id, downloadClientId) })
-      : await db.query.downloadClients.findFirst({ where: eq(downloadClients.enabled, true) });
+  const client = downloadClientId
+    ? await db.query.downloadClients.findFirst({ where: eq(downloadClients.id, downloadClientId) })
+    : await db.query.downloadClients.findFirst({ where: eq(downloadClients.enabled, true) });
 
   if (!client) {
     return NextResponse.json({ error: "No download client configured" }, { status: 503 });
@@ -143,11 +150,14 @@ export async function GET(req: Request) {
         });
 
   // Strip sensitive fields
-  const safe = grabList.map((g) => ({
-    ...g,
-    nzbUrl: undefined,
-    archivePassword: undefined,
-  }));
+  const safe = grabList.map(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (g: any) => ({
+      ...g,
+      nzbUrl: undefined,
+      archivePassword: undefined,
+    }),
+  );
 
   return NextResponse.json({ grabs: safe });
 }

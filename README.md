@@ -1,6 +1,6 @@
 # Snatcharr
 
-A modern, self-hosted Usenet search & download manager with a dark *arr-style UI.  
+A modern, self-hosted Usenet search & download manager with a dark \*arr-style UI.  
 Built with Next.js 15, TypeScript, TailwindCSS, Drizzle ORM, and Auth.js.
 
 ---
@@ -14,7 +14,7 @@ Built with Next.js 15, TypeScript, TailwindCSS, Drizzle ORM, and Auth.js.
 - **Settings** — General, Security, Indexers, Download Clients, Apps
 - **Users** — admin user management with per-user limits
 - **System** — health checks, live logs, disk/memory info
-- **Dark UI** — *arr-inspired dark theme, fully responsive
+- **Dark UI** — \*arr-inspired dark theme, fully responsive
 - **Docker ready** — single `docker compose up` deployment
 
 ---
@@ -54,15 +54,15 @@ docker compose --profile full up -d
 
 ### Environment Variables
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `NEXTAUTH_SECRET` | **Yes** | — | Random 32+ char secret for JWT signing |
-| `NEXTAUTH_URL` | **Yes** | `http://localhost:3000` | Public URL of the app |
-| `DATABASE_URL` | No | `file:./data/snatcharr.db` | SQLite path or PostgreSQL URL |
-| `DATA_DIR_HOST` | No | `./data` | Directory for DB and app data |
-| `DOWNLOAD_DIR_HOST` | No | `./downloads` | Where downloaded files are stored |
-| `REDIS_URL` | No | — | Redis URL for rate limiting |
-| `SMTP_*` | No | — | Email settings for notifications |
+| Variable            | Required | Default                    | Description                            |
+| ------------------- | -------- | -------------------------- | -------------------------------------- |
+| `NEXTAUTH_SECRET`   | **Yes**  | —                          | Random 32+ char secret for JWT signing |
+| `NEXTAUTH_URL`      | **Yes**  | `http://localhost:3000`    | Public URL of the app                  |
+| `DATABASE_URL`      | No       | `file:./data/snatcharr.db` | SQLite path or PostgreSQL URL          |
+| `DATA_DIR_HOST`     | No       | `./data`                   | Directory for DB and app data          |
+| `DOWNLOAD_DIR_HOST` | No       | `./downloads`              | Where downloaded files are stored      |
+| `REDIS_URL`         | No       | —                          | Redis URL for rate limiting            |
+| `SMTP_*`            | No       | —                          | Email settings for notifications       |
 
 ---
 
@@ -98,14 +98,14 @@ snatcharr/
 
 ## Integrations
 
-| Service | Purpose |
-|---|---|
+| Service      | Purpose                                |
+| ------------ | -------------------------------------- |
 | **Prowlarr** | NZB indexer aggregator — search source |
-| **SABnzbd** | Primary download client |
-| **NZBGet** | Alternative download client |
-| **Jellyfin** | User authentication + media sync |
-| **Jellyseerr** | Media request integration |
-| **Organizr** | Single-pane SSO authentication |
+| **SABnzbd**  | Primary download client                |
+| **NZBGet**   | Alternative download client            |
+| **Jellyfin** | User authentication + media sync       |
+| **Seerr**    | Media request integration              |
+| **Organizr** | Single-pane SSO authentication         |
 
 ---
 

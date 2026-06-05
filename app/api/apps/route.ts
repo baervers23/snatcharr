@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { externalApps } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 export async function GET() {
@@ -19,32 +19,37 @@ export async function GET() {
 
 const appSchema = z.object({
   name: z.string().min(1),
-  type: z.enum(["jellyfin", "jellyseerr", "lidarr", "radarr", "sonarr", "organizr"]),
+  type: z.enum(["jellyfin", "seerr", "lidarr", "radarr", "sonarr", "organizr"]),
   url: z.string().url(),
   apiKey: z.string().optional(),
 });
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (session?.user?.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (session?.user?.role !== "admin")
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();
   const parsed = appSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid data" }, { status: 422 });
 
-  const [app] = await db.insert(externalApps).values({
-    ...parsed.data,
-    enabled: true,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }).returning();
+  const [app] = await db
+    .insert(externalApps)
+    .values({
+      ...parsed.data,
+      enabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning();
 
   return NextResponse.json({ app }, { status: 201 });
 }
 
 export async function DELETE(req: Request) {
   const session = await auth();
-  if (session?.user?.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (session?.user?.role !== "admin")
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");

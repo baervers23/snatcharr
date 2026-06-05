@@ -1,10 +1,9 @@
 "use client";
-
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { Check, ChevronRight, User, Search, Download, Layers, Shield, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Check, ChevronRight, Download, Layers, Loader2, Search, Shield, User, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { toast } from "sonner";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -16,7 +15,8 @@ interface AdminData {
 
 interface IndexerData {
   name: string;
-  prowlarrUrl: string;
+  type: "prowlarr";
+  url: string;
   apiKey: string;
   categories: string;
 }
@@ -32,8 +32,8 @@ interface ClientData {
 interface AppsData {
   jellyfinUrl: string;
   jellyfinApiKey: string;
-  jellyseerrUrl: string;
-  jellyseerrApiKey: string;
+  seerrUrl: string;
+  seerrApiKey: string;
 }
 
 const STEPS = [
@@ -47,6 +47,9 @@ export default function SetupWizard() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [loading, setLoading] = useState(false);
+  
+  const [indexerTestStatus, setIndexerTestStatus] = useState<"success" | "error" | null>(null);
+  const [clientTestStatus, setClientTestStatus] = useState<"success" | "error" | null>(null);
   const [testingIndexer, setTestingIndexer] = useState(false);
   const [testingClient, setTestingClient] = useState(false);
 
@@ -58,7 +61,8 @@ export default function SetupWizard() {
 
   const [indexerData, setIndexerData] = useState<IndexerData>({
     name: "Prowlarr",
-    prowlarrUrl: "http://localhost:9696",
+    type: "prowlarr",
+    url: "http://localhost:9696",
     apiKey: "",
     categories: "",
   });
@@ -74,8 +78,8 @@ export default function SetupWizard() {
   const [appsData, setAppsData] = useState<AppsData>({
     jellyfinUrl: "",
     jellyfinApiKey: "",
-    jellyseerrUrl: "",
-    jellyseerrApiKey: "",
+    seerrUrl: "",
+    seerrApiKey: "",
   });
 
   async function handleAdminSubmit(e: React.FormEvent) {
@@ -92,72 +96,107 @@ export default function SetupWizard() {
   }
 
 async function testProwlarr() {
-    if (!indexerData.prowlarrUrl || !indexerData.apiKey) {
-      toast.error("Bitte URL und API-Key ausfüllen");
-      return;
-    }
-
-    setTestingIndexer(true);
-    try {
-      const res = await fetch("/api/setup/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "prowlarr",
-          url: indexerData.prowlarrUrl,
-          apiKey: indexerData.apiKey,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        toast.success("✅ Verbindung zu Prowlarr erfolgreich!");
-      } else {
-        toast.error(data.error || "Verbindung fehlgeschlagen");
-      }
-    } catch (err) {
-      toast.error("Verbindung fehlgeschlagen");
-    } finally {
-      setTestingIndexer(false);
-    }
+const cleanUrl = indexerData.url.trim();
+  if (!indexerData.url || !indexerData.apiKey) {
+    toast.error("Bitte URL und API-Key ausfüllen");
+    return;
   }
 
-  async function testDownloadClient() {
-    if (!clientData.url || !clientData.apiKey) {
-      toast.error("Bitte URL und API-Key ausfüllen");
-      return;
+
+  if (!cleanUrl.startsWith("http")) {
+  toast.error("URL muss mit http:// oder https:// beginnen");
+  return;
+}
+
+  setTestingIndexer(true);
+  setIndexerTestStatus(null);
+
+
+  try {
+    const res = await fetch("/api/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "test",
+        type: "prowlarr",
+        url: indexerData.url,
+        apiKey: indexerData.apiKey,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      setIndexerTestStatus("success");
+      toast.success("✅ Prowlarr erfolgreich verbunden");
+    } else {
+      setIndexerTestStatus("error");
+      toast.error(data.error || "Verbindung fehlgeschlagen");
     }
-
-    setTestingClient(true);
-    try {
-      const res = await fetch("/api/setup/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: clientData.type,
-          url: clientData.url,
-          apiKey: clientData.apiKey,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        toast.success(`✅ Verbindung zu ${clientData.name} erfolgreich!`);
-      } else {
-        toast.error(data.error || "Verbindung fehlgeschlagen");
-      }
-    } catch (err) {
-      toast.error("Verbindung fehlgeschlagen");
-    } finally {
-      setTestingClient(false);
-    }
+  } catch (err) {
+    setIndexerTestStatus("error");
+    toast.error("Verbindung fehlgeschlagen");
+  } finally {
+    setTestingIndexer(false);
+    
+    // Farbe nach 3 Sekunden zurücksetzen
+    setTimeout(() => {
+      setIndexerTestStatus(null);
+    }, 3000);
   }
+}
+
+async function testDownloadClient() {
+  const cleanUrl = clientData.url.trim();  // ← clientData statt indexerData
+  if (!cleanUrl.startsWith("http")) {
+    toast.error("URL muss mit http:// oder https:// beginnen");
+    return;
+  }
+
+  if (!clientData.url || !clientData.apiKey) {
+    toast.error("Bitte URL und API-Key ausfüllen");
+    return;
+  }
+
+  setTestingClient(true);
+  setClientTestStatus(null);
+
+  try {
+    const res = await fetch("/api/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "test",
+        type: clientData.type,
+        url: clientData.url,
+        apiKey: clientData.apiKey,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      setClientTestStatus("success");           // ← client statt indexer
+      toast.success("✅ Download Client erfolgreich verbunden");
+    } else {
+      setClientTestStatus("error");
+      toast.error(data.error || "Verbindung fehlgeschlagen");
+    }
+  } catch (err) {
+    setClientTestStatus("error");
+    toast.error("Verbindung fehlgeschlagen");
+  } finally {
+    setTestingClient(false);
+    
+    setTimeout(() => {
+      setClientTestStatus(null);                // ← client statt indexer
+    }, 3000);
+  }
+}
 
   async function handleIndexerSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!indexerData.prowlarrUrl || !indexerData.apiKey) {
+    if (!indexerData.url || !indexerData.apiKey) {
       toast.error("Please fill in the required fields");
       return;
     }
@@ -169,21 +208,22 @@ async function testProwlarr() {
     setCurrentStep(4);
   }
 
-  async function handleFinish() {
+async function handleFinish() {
     setLoading(true);
     try {
       const response = await fetch("/api/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          action: "complete",        // ← besser als "test"
           admin: adminData,
-          indexer: indexerData.apiKey ? indexerData : null,
-          downloadClient: clientData.apiKey ? clientData : null,
+          indexer: indexerData,
+          client: clientData,
           apps: appsData,
         }),
       });
 
-      const data = (await response.json()) as { error?: string };
+      const data = await response.json();
 
       if (!response.ok) {
         toast.error(data.error ?? "Setup failed");
@@ -336,8 +376,8 @@ async function testProwlarr() {
               <input
                 className="nv-input w-full"
                 type="url"
-                value={indexerData.prowlarrUrl}
-                onChange={(e) => setIndexerData({ ...indexerData, prowlarrUrl: e.target.value })}
+                value={indexerData.url}
+                onChange={(e) => setIndexerData({ ...indexerData, url: e.target.value })}
                 placeholder="http://localhost:9696"
                 required
               />
@@ -361,15 +401,29 @@ async function testProwlarr() {
               <button
                 type="button"
                 onClick={testProwlarr}
-                disabled={testingIndexer || !indexerData.prowlarrUrl || !indexerData.apiKey}
-                className="flex items-center gap-2 px-5 py-2 border border-border hover:bg-muted rounded-md text-sm font-medium transition-colors disabled:opacity-50"
-              >
+                disabled={testingIndexer || !indexerData.url || !indexerData.apiKey}
+                className={cn(
+                  "flex items-center gap-2 px-5 py-2 border rounded-md text-sm font-medium transition-all",
+                  indexerTestStatus === "success" && "border-green-500 text-green-600 bg-green-500/10",
+                  indexerTestStatus === "error" && "border-red-500 text-red-600 bg-red-500/10",
+                  !indexerTestStatus && "border-border hover:bg-muted"
+                )}
+                >
+                {/* Icon-Logik bleibt gleich */}
                 {testingIndexer ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
+                ) : indexerTestStatus === "success" ? (
+                  <Check className="h-4 w-4 text-green-600" />
+                ) : indexerTestStatus === "error" ? (
+                  <X className="h-4 w-4 text-red-600" />
                 ) : (
                   <Search className="h-4 w-4" />
                 )}
-                Verbindung testen
+                {indexerTestStatus === "success" 
+                  ? "Erfolgreich" 
+                  : indexerTestStatus === "error" 
+                  ? "Fehlgeschlagen" 
+                  : "Verbindung testen"}
               </button>
             </div>
 
@@ -444,8 +498,37 @@ async function testProwlarr() {
                 required
               />
             </div>
-
             <div className="flex items-center justify-between pt-4">
+              <button
+                type="button"
+                onClick={testDownloadClient}
+                disabled={testingClient || !clientData.url || !clientData.apiKey}
+                className={cn(
+                  "flex items-center gap-2 px-5 py-2 border rounded-md text-sm font-medium transition-all",
+                  indexerTestStatus === "success" && "border-green-500 text-green-600 bg-green-500/10",
+                  indexerTestStatus === "error" && "border-red-500 text-red-600 bg-red-500/10",
+                  !indexerTestStatus && "border-border hover:bg-muted"
+                )}
+                >
+                {/* Icon-Logik bleibt gleich */}
+                {testingIndexer ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : indexerTestStatus === "success" ? (
+                  <Check className="h-4 w-4 text-green-600" />
+                ) : indexerTestStatus === "error" ? (
+                  <X className="h-4 w-4 text-red-600" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
+                {indexerTestStatus === "success" 
+                  ? "Erfolgreich" 
+                  : indexerTestStatus === "error" 
+                  ? "Fehlgeschlagen" 
+                  : "Verbindung testen"}
+              </button>
+
+
+
               <button
                 type="button"
                 onClick={testDownloadClient}
@@ -470,7 +553,7 @@ async function testProwlarr() {
             <div>
               <h2 className="text-xl font-semibold mb-1">External Apps (Optional)</h2>
               <p className="text-sm text-muted-foreground">
-                Connect Jellyfin and Jellyseerr for user sync and authentication.
+                Connect Jellyfin and Seerr for user sync and authentication.
               </p>
             </div>
 
@@ -500,14 +583,14 @@ async function testProwlarr() {
               </div>
 
               <div className="nv-card p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-foreground">Jellyseerr</h3>
+                <h3 className="text-sm font-semibold text-foreground">Seerr</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">URL</label>
                     <input
                       className="nv-input w-full"
-                      value={appsData.jellyseerrUrl}
-                      onChange={(e) => setAppsData({ ...appsData, jellyseerrUrl: e.target.value })}
+                      value={appsData.seerrUrl}
+                      onChange={(e) => setAppsData({ ...appsData, seerrUrl: e.target.value })}
                       placeholder="http://localhost:5055"
                     />
                   </div>
@@ -515,8 +598,8 @@ async function testProwlarr() {
                     <label className="text-xs text-muted-foreground">API Key</label>
                     <input
                       className="nv-input w-full font-mono"
-                      value={appsData.jellyseerrApiKey}
-                      onChange={(e) => setAppsData({ ...appsData, jellyseerrApiKey: e.target.value })}
+                      value={appsData.seerrApiKey}
+                      onChange={(e) => setAppsData({ ...appsData, seerrApiKey: e.target.value })}
                       placeholder="API Key"
                     />
                   </div>

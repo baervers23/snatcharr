@@ -33,7 +33,7 @@ export async function searchProwlarr(
   categories: number[] = [],
   limit = 100,
 ): Promise<ProwlarrSearchResult[]> {
-  const baseUrl = indexer.prowlarrUrl.replace(/\/$/, "");
+  const baseUrl = indexer.url.replace(/\/$/, "");
   const params = new URLSearchParams({
     apikey: indexer.apiKey,
     Query: query,

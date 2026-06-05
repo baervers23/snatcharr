@@ -15,7 +15,7 @@ export async function POST() {
 
   const results = await Promise.all([
     ...indexerList.map(async (idx) => {
-      const result = await testProwlarrConnection(idx.prowlarrUrl, idx.apiKey);
+      const result = await testProwlarrConnection(idx.url, idx.apiKey);
       await db.update(indexers).set({
         lastCheckedAt: new Date(),
         lastStatus: result.ok ? "ok" : "error",
