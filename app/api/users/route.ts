@@ -5,6 +5,8 @@ import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { logAudit } from "@/lib/audit";
+import { getSetting } from "@/lib/db/settings";
 
 const createUserSchema = z.object({
   username: z.string().min(2).max(50),
@@ -41,19 +43,31 @@ export async function POST(req: Request) {
   if (existing) return NextResponse.json({ error: "Username already exists" }, { status: 409 });
 
   const passwordHash = await bcrypt.hash(password, 12);
+  const requireAppGrant = await getSetting("requireAppGrant");
+  const globalGrabLimit = await getSetting("maxGrabsPerUserPerDay");
+  const granted = role === "admin" || !requireAppGrant;
   const [user] = await db
     .insert(users)
     .values({
       username,
       passwordHash,
       role,
-      maxGrabsPerDay,
+      maxGrabsPerDay: maxGrabsPerDay || globalGrabLimit,
       email,
+      canGrab: granted,
+      canDownload: granted,
       isActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
     .returning();
+
+  await logAudit("user.create", {
+    userId: session.user.id,
+    username: session.user.username,
+    details: `${username} (${role})`,
+    req,
+  });
 
   const { passwordHash: _, ...safe } = user;
   return NextResponse.json({ user: safe }, { status: 201 });

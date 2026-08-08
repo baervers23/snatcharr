@@ -1,17 +1,18 @@
-import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { getSetting } from "@/lib/db/settings";
+import { isSetupComplete } from "@/lib/setup-status";
+import { redirect } from "next/navigation";
 
-export default async function RootPage() {
-  const setupCompleted = await getSetting("setupCompleted");
-  if (!setupCompleted) {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  if (!(await isSetupComplete())) {
     redirect("/setup");
   }
 
   const session = await auth();
-  if (!session?.user) {
-    redirect("/login");
+  if (session?.user) {
+    redirect("/search");
   }
 
-  redirect("/search");
+  redirect("/login");
 }

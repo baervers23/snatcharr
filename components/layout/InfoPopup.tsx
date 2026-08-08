@@ -23,7 +23,9 @@ export default function InfoPopup({ text, onClose }: InfoPopupProps) {
         </div>
 
         <div className="p-4">
-          <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{text}</p>
+          <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed [font-variant-emoji:emoji]">
+            {text}
+          </p>
         </div>
 
         <div className="p-4 border-t border-border flex justify-end">

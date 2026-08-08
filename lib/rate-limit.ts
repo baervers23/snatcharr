@@ -1,6 +1,4 @@
-/**
- * Simple in-memory rate limiter (use Redis adapter in production via REDIS_URL env).
- */
+/** Simple in-memory rate limiter. */
 
 interface RateLimitEntry {
   count: number;
@@ -50,12 +48,9 @@ setInterval(() => {
   }
 }, 60_000);
 
-/** Convenience: 10 search requests per minute per IP */
-export function searchRateLimit(ip: string): RateLimitResult {
-  return rateLimit(ip, { windowMs: 60_000, max: 30, keyPrefix: "search" });
+/** Per-IP search anti-flood (max requests per minute; 0 = use default 30). */
+export function searchRateLimit(ip: string, maxPerMinute = 30): RateLimitResult {
+  const max = maxPerMinute > 0 ? maxPerMinute : 30;
+  return rateLimit(ip, { windowMs: 60_000, max, keyPrefix: "search" });
 }
 
-/** Login attempts: 5 per 15 min per IP */
-export function loginRateLimit(ip: string): RateLimitResult {
-  return rateLimit(ip, { windowMs: 15 * 60_000, max: 5, keyPrefix: "login" });
-}
