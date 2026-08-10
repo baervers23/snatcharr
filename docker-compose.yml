@@ -12,9 +12,10 @@ services:
     volumes:
       - ./snatcharr-data:/app/data
       - /mergerfs/warez:/downloads:noexec
-    networks:
-      - snatcharr
-      - proxy
+# reverse proxy, docker dns
+#    networks:
+#      - snatcharr
+#      - proxy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 30s
@@ -27,23 +28,6 @@ services:
     #   dockerfile: Dockerfile
     #   args:
     #     APP_VERSION: ${APP_VERSION:-0.9.3}
-
-  # Optional — not required today; reserved for future caching.
-  redis:
-    image: redis:7-alpine
-    container_name: snatcharr_redis
-    restart: unless-stopped
-    profiles: [redis]
-    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
-    volumes:
-      - ${REDIS_DATA_HOST:-./data/redis}:/data
-    networks:
-      - snatcharr
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   # Example only — SABnzbd is usually managed separately. Uncomment to run alongside Snatcharr.
   # sabnzbd:
@@ -70,18 +54,41 @@ services:
   #   tmpfs:
   #     - /tmp:size=512M
 
-networks:
-  snatcharr:
-    name: snatcharr
-    driver: bridge
-  proxy:
-    name: proxy
-    driver: bridge
-
 # Uncomment for an existing reverse-proxy network (e.g. NPM, Traefik):
 # nginx:
 #   external: true
+  # Optional — not required today; reserved for future caching.
+
+# Uncomment for an existing reverse-proxy network (e.g. NPM, Traefik):
+#networks:
+#  snatcharr:
+#    name: snatcharr
+#    driver: bridge
+#  proxy:
+#    name: proxy
+#    driver: bridge
+#  nginx:
+#    external: true
+
 #
 # Then add to snatcharr service:
 #   networks: [snatcharr, nginx]
 # And comment out `ports:` if the proxy handles routing.
+
+
+#  redis:
+#    image: redis:7-alpine
+#    container_name: snatcharr_redis
+#    restart: unless-stopped
+#    profiles: [redis]
+#    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+#    volumes:
+#      - ${REDIS_DATA_HOST:-./data/redis}:/data
+#    networks:
+#      - snatcharr
+#    healthcheck:
+#      test: ["CMD", "redis-cli", "ping"]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 5
+

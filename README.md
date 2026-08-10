@@ -38,6 +38,7 @@
 
 **v0.9.3** — A self-hosted Usenet search and grab manager for home labs and Jellyfin setups.
 
+
 Search releases through Prowlarr, send NZBs to SABnzbd or NZBGet, track grabs, and manage users with daily limits. Built with Next.js 15, SQLite, and Auth.js.
 
 ---
@@ -184,7 +185,9 @@ docker run -d \
   baervers23/snatcharr:latest
 ```
 
+
 ---
+
 
 ## Run without Docker
 
