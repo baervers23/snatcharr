@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+.next/
+out/
+build/
+dist/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!.env.local.example
+README.md.local
+
+# Local runtime data (SQLite, config.json, logs — never commit)
+data/*
+!data/.gitkeep
+
+# Grabbed files
+downloads/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+*:Zone.Identifier
+**/*Zone.Identifier
+
+# Editor / IDE
+.vscode/*
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# Deploy
+.vercel
+
+# vscode
+.vscode/
+
+# notes
+.docker-dev

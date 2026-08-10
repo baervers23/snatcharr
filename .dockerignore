@@ -1,0 +1,15 @@
+node_modules
+.next
+data
+downloads
+.git
+.env
+.env.*
+!.env.example
+README.md.local
+*.log
+*.md
+.vscode
+.idea
+**/*Zone.Identifier
+.docker-dev
