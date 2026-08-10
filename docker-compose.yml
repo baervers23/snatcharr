@@ -1,0 +1,87 @@
+services:
+
+  snatcharr:
+    image: baervers23/snatcharr:latest
+    container_name: snatcharr
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ./snatcharr-data:/app/data
+      - /mergerfs/warez:/downloads:noexec
+    networks:
+      - snatcharr
+      - proxy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Build locally instead of pulling the image:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     APP_VERSION: ${APP_VERSION:-0.9.3}
+
+  # Optional — not required today; reserved for future caching.
+  redis:
+    image: redis:7-alpine
+    container_name: snatcharr_redis
+    restart: unless-stopped
+    profiles: [redis]
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - ${REDIS_DATA_HOST:-./data/redis}:/data
+    networks:
+      - snatcharr
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Example only — SABnzbd is usually managed separately. Uncomment to run alongside Snatcharr.
+  # sabnzbd:
+  #   image: lscr.io/linuxserver/sabnzbd:latest
+  #   container_name: sabnzbd
+  #   restart: unless-stopped
+  #   environment:
+  #     - PUID=568
+  #     - PGID=568
+  #     - TZ=Europe/Berlin
+  #   volumes:
+  #     - ./sabnzbd-config:/config
+  #     - ./downloads:/downloads:rw
+  #     - /mergerfs/warez:/warez
+  #   expose:
+  #     - "8080"
+  #   networks:
+  #     - proxy
+  #   dns:
+  #     - 1.1.1.1
+  #     - 1.0.0.1
+  #   security_opt:
+  #     - no-new-privileges:true
+  #   tmpfs:
+  #     - /tmp:size=512M
+
+networks:
+  snatcharr:
+    name: snatcharr
+    driver: bridge
+  proxy:
+    name: proxy
+    driver: bridge
+
+# Uncomment for an existing reverse-proxy network (e.g. NPM, Traefik):
+# nginx:
+#   external: true
+#
+# Then add to snatcharr service:
+#   networks: [snatcharr, nginx]
+# And comment out `ports:` if the proxy handles routing.
