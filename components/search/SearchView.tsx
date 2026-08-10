@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import { Search, X, Filter, Loader2 } from "lucide-react";
-import { cn, formatBytes, formatAge, CATEGORY_GROUPS } from "@/lib/utils";
+import { useState, useCallback, useRef, useMemo } from "react";
+import { Search, X, Filter, Loader2, ArrowUp, ArrowDown } from "lucide-react";
+import { cn, formatBytes, formatAge, CATEGORY_GROUPS, resolveCategoryLabel, type CategoryGroup } from "@/lib/utils";
 import { toast } from "sonner";
 import ResultDetailModal from "./ResultDetailModal";
 import GrabConfirmModal from "./GrabConfirmModal";
@@ -12,30 +12,132 @@ interface SearchResult extends ProwlarrSearchResult {
   id: string;
 }
 
-export default function SearchView() {
+type SortKey = "title" | "category" | "age" | "size" | "grabs";
+type SortDir = "asc" | "desc";
+
+export default function SearchView({
+  isAdmin = false,
+  canPickDownloader = false,
+  enabledCategories,
+}: {
+  isAdmin?: boolean;
+  canPickDownloader?: boolean;
+  enabledCategories?: string[];
+}) {
+  const visibleGroups = enabledCategories
+    ? CATEGORY_GROUPS.filter((g) => enabledCategories.includes(g.label))
+    : CATEGORY_GROUPS;
   const [query, setQuery] = useState("");
-  const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<CategoryGroup | null>(null);
+  const [selectedSubs, setSelectedSubs] = useState<number[]>([]);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
   const [grabTarget, setGrabTarget] = useState<SearchResult | null>(null);
   const [grabbingId, setGrabbingId] = useState<string | null>(null);
+  const [grabbedGuids, setGrabbedGuids] = useState<Set<string>>(new Set());
+  const [sortKey, setSortKey] = useState<SortKey>("grabs");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const toggleCategory = useCallback((ids: number[]) => {
-    setSelectedCategories((prev) => {
+  // Effective category IDs sent to the API: chosen subcategories, else the whole
+  // main group, else none (search everything).
+  const effectiveCategories =
+    selectedSubs.length > 0
+      ? selectedSubs
+      : selectedGroup
+        ? selectedGroup.ids
+        : [];
+
+  const toggleSort = useCallback(
+    (key: SortKey) => {
+      setPage(1);
+      if (key === sortKey) {
+        // Same column → just flip the direction (single, safe state update).
+        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      } else {
+        setSortKey(key);
+        setSortDir(key === "title" || key === "category" ? "asc" : "desc");
+      }
+    },
+    [sortKey],
+  );
+
+  function selectMainGroup(group: CategoryGroup) {
+    setPage(1);
+    if (selectedGroup?.label === group.label) {
+      // Clicking the active group clears the whole filter.
+      setSelectedGroup(null);
+      setSelectedSubs([]);
+    } else {
+      // Switching main group always resets the subcategory selection.
+      setSelectedGroup(group);
+      setSelectedSubs([]);
+    }
+  }
+
+  function toggleSub(ids: number[]) {
+    setPage(1);
+    setSelectedSubs((prev) => {
       const allSelected = ids.every((id) => prev.includes(id));
       if (allSelected) return prev.filter((c) => !ids.includes(c));
       return [...new Set([...prev, ...ids])];
     });
-  }, []);
+  }
+
+  const sortedResults = useMemo(() => {
+    const arr = [...results];
+    const dir = sortDir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      let av: string | number;
+      let bv: string | number;
+      switch (sortKey) {
+        case "title":
+          av = a.title?.toLowerCase() ?? "";
+          bv = b.title?.toLowerCase() ?? "";
+          break;
+        case "category":
+          av = a.categories?.[0]?.name?.toLowerCase() ?? "";
+          bv = b.categories?.[0]?.name?.toLowerCase() ?? "";
+          break;
+        case "age":
+          av = a.publishDate ? new Date(a.publishDate).getTime() : 0;
+          bv = b.publishDate ? new Date(b.publishDate).getTime() : 0;
+          break;
+        case "size":
+          av = a.size ?? 0;
+          bv = b.size ?? 0;
+          break;
+        case "grabs":
+        default:
+          av = a.grabs ?? 0;
+          bv = b.grabs ?? 0;
+          break;
+      }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+    return arr;
+  }, [results, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedResults.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedResults = useMemo(
+    () => sortedResults.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [sortedResults, currentPage, pageSize],
+  );
 
   const clearSearch = () => {
     setQuery("");
     setResults([]);
     setSearched(false);
-    setSelectedCategories([]);
+    setSelectedGroup(null);
+    setSelectedSubs([]);
+    setPage(1);
     inputRef.current?.focus();
   };
 
@@ -46,15 +148,18 @@ export default function SearchView() {
 
       setLoading(true);
       setSearched(true);
+      setPage(1);
 
       try {
         const params = new URLSearchParams({ q: query.trim() });
-        if (selectedCategories.length) {
-          params.set("categories", selectedCategories.join(","));
+        if (effectiveCategories.length) {
+          params.set("categories", effectiveCategories.join(","));
         }
 
         const response = await fetch(`/api/search?${params}`);
-        const data = (await response.json()) as { results?: SearchResult[]; error?: string };
+        const data = (await response.json()) as { results?: SearchResult[]; pageSize?: number; error?: string };
+
+        if (data.pageSize) setPageSize(data.pageSize);
 
         if (!response.ok) {
           toast.error(data.error ?? "Search failed");
@@ -70,14 +175,22 @@ export default function SearchView() {
         setLoading(false);
       }
     },
-    [query, selectedCategories],
+    [query, selectedGroup, selectedSubs],
   );
 
   const handleGrab = async (result: SearchResult) => {
-    setGrabTarget(result);
+    if (isAdmin || canPickDownloader) {
+      setGrabTarget(result);
+    } else {
+      await confirmGrab(result);
+    }
   };
 
-  const confirmGrab = async (result: SearchResult, clientId: string) => {
+  const confirmGrab = async (result: SearchResult, clientId?: string) => {
+    if (grabbedGuids.has(result.guid) || grabbingId === result.id) {
+      toast.info("Already grabbed");
+      return;
+    }
     setGrabTarget(null);
     setGrabbingId(result.id);
     try {
@@ -89,13 +202,14 @@ export default function SearchView() {
           downloadUrl: result.downloadUrl,
           title: result.title,
           size: result.size,
-          indexer: result.indexer,
+          ...(isAdmin && result.indexer ? { indexer: result.indexer } : {}),
           category: result.categories?.[0]?.name,
           categoryId: result.categories?.[0]?.id,
           ageSeconds: result.guid
             ? Math.floor((Date.now() - new Date(result.publishDate).getTime()) / 1000)
             : undefined,
-          downloadClientId: clientId,
+          ...(clientId ? { downloadClientId: clientId } : {}),
+          ...(isAdmin && result.indexerId ? { indexerId: result.indexerId } : {}),
         }),
       });
 
@@ -105,15 +219,14 @@ export default function SearchView() {
         return;
       }
 
-      toast.success(`"${result.title}" sent to download client`);
+      setGrabbedGuids((prev) => new Set(prev).add(result.guid));
+      toast.success(`Grab started — "${result.title}" queued for download`);
     } catch {
       toast.error("Grab failed. Please try again.");
     } finally {
       setGrabbingId(null);
     }
   };
-
-  const isCategoryGroupSelected = (ids: number[]) => ids.some((id) => selectedCategories.includes(id));
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto">
@@ -128,7 +241,7 @@ export default function SearchView() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search NZBs..."
+              placeholder="What are you looking for?"
               autoFocus
             />
             {query && (
@@ -152,17 +265,17 @@ export default function SearchView() {
         </div>
       </form>
 
-      {/* Category chips */}
+      {/* Main category chips */}
       <div className="flex flex-wrap gap-2 items-center">
         <span className="text-xs text-muted-foreground flex items-center gap-1">
           <Filter className="h-3 w-3" /> Categories:
         </span>
-        {CATEGORY_GROUPS.map((group) => {
-          const active = isCategoryGroupSelected(group.ids);
+        {visibleGroups.map((group) => {
+          const active = selectedGroup?.label === group.label;
           return (
             <button
               key={group.label}
-              onClick={() => toggleCategory(group.ids)}
+              onClick={() => selectMainGroup(group)}
               className={cn(
                 "px-3 py-1 rounded-full text-xs font-medium border transition-all",
                 active
@@ -174,9 +287,13 @@ export default function SearchView() {
             </button>
           );
         })}
-        {selectedCategories.length > 0 && (
+        {selectedGroup && (
           <button
-            onClick={() => setSelectedCategories([])}
+            onClick={() => {
+              setSelectedGroup(null);
+              setSelectedSubs([]);
+              setPage(1);
+            }}
             className="px-2 py-1 text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1"
           >
             <X className="h-3 w-3" /> Clear
@@ -184,12 +301,47 @@ export default function SearchView() {
         )}
       </div>
 
+      {/* Subcategory chips (multi-select) — shown once a main category is active */}
+      {selectedGroup && selectedGroup.subcategories.length > 0 && (
+        <div className="flex flex-wrap gap-2 items-center pl-4 border-l-2 border-primary/30">
+          <span className="text-xs text-muted-foreground">{selectedGroup.label}:</span>
+          {selectedGroup.subcategories.map((sub) => {
+            const active = sub.ids.every((id) => selectedSubs.includes(id));
+            return (
+              <button
+                key={sub.label}
+                onClick={() => toggleSub(sub.ids)}
+                className={cn(
+                  "px-2.5 py-0.5 rounded-full text-xs font-medium border transition-all",
+                  active
+                    ? "bg-primary/80 text-primary-foreground border-primary"
+                    : "bg-transparent text-muted-foreground border-border hover:border-primary/50 hover:text-foreground",
+                )}
+              >
+                {sub.label}
+              </button>
+            );
+          })}
+          {selectedSubs.length > 0 && (
+            <button
+              onClick={() => {
+                setSelectedSubs([]);
+                setPage(1);
+              }}
+              className="px-2 py-0.5 text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1"
+            >
+              <X className="h-3 w-3" /> Reset
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Results */}
       {loading && (
         <div className="flex items-center justify-center py-20">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">Searching indexers...</p>
+            <p className="text-sm text-muted-foreground">{isAdmin ? "Searching indexers..." : "Searching..."}</p>
           </div>
         </div>
       )}
@@ -211,11 +363,16 @@ export default function SearchView() {
 
       {!loading && results.length > 0 && (
         <div className="nv-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <span className="text-sm font-medium">{results.length} results</span>
-            {selectedCategories.length > 0 && (
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
+            <span className="text-sm font-medium">
+              {results.length} results
+              {totalPages > 1 && (
+                <span className="text-muted-foreground font-normal"> · page {currentPage}/{totalPages}</span>
+              )}
+            </span>
+            {effectiveCategories.length > 0 && (
               <span className="text-xs text-muted-foreground">
-                Filtered by {selectedCategories.length} categor{selectedCategories.length > 1 ? "ies" : "y"}
+                Filtered by {effectiveCategories.length} categor{effectiveCategories.length > 1 ? "ies" : "y"}
               </span>
             )}
           </div>
@@ -224,27 +381,60 @@ export default function SearchView() {
             <table className="nv-table">
               <thead>
                 <tr>
-                  <th>Title</th>
-                  <th className="hidden md:table-cell">Category</th>
-                  <th className="hidden sm:table-cell">Age</th>
-                  <th>Size</th>
-                  <th className="hidden lg:table-cell">Grabs</th>
+                  <SortHeader label="Title" sortKey="title" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label="Category" sortKey="category" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="hidden md:table-cell" />
+                  <SortHeader label="Age" sortKey="age" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="hidden sm:table-cell" />
+                  <SortHeader label="Size" sortKey="size" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                  {isAdmin && (
+                    <th className="hidden lg:table-cell text-xs text-muted-foreground">Indexer</th>
+                  )}
+                  <SortHeader
+                    label={isAdmin ? "Indexer Grabs" : "Grabs"}
+                    sortKey="grabs"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                  />
                   <th className="text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {results.map((result) => (
+                {pagedResults.map((result) => (
                   <ResultRow
                     key={result.id}
                     result={result}
+                    showIndexer={isAdmin}
                     onDetail={() => setSelectedResult(result)}
                     onGrab={() => handleGrab(result)}
                     isGrabbing={grabbingId === result.id}
+                    alreadyGrabbed={grabbedGuids.has(result.guid)}
                   />
                 ))}
               </tbody>
             </table>
           </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="px-3 py-1.5 text-sm border border-border rounded-md hover:bg-accent disabled:opacity-40 transition-colors"
+              >
+                Previous
+              </button>
+              <span className="text-xs text-muted-foreground">
+                Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, sortedResults.length)} of {sortedResults.length}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="px-3 py-1.5 text-sm border border-border rounded-md hover:bg-accent disabled:opacity-40 transition-colors"
+              >
+                Next
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -252,6 +442,7 @@ export default function SearchView() {
       {selectedResult && (
         <ResultDetailModal
           result={selectedResult}
+          showIndexer={isAdmin}
           onClose={() => setSelectedResult(null)}
           onGrab={() => {
             setSelectedResult(null);
@@ -271,22 +462,60 @@ export default function SearchView() {
   );
 }
 
+function SortHeader({
+  label,
+  sortKey,
+  activeKey,
+  dir,
+  onSort,
+  className,
+}: {
+  label: string;
+  sortKey: SortKey;
+  activeKey: SortKey;
+  dir: SortDir;
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  const active = activeKey === sortKey;
+  return (
+    <th className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn(
+          "inline-flex items-center gap-1 select-none hover:text-foreground transition-colors",
+          active ? "text-foreground font-semibold" : "text-muted-foreground",
+        )}
+      >
+        {label}
+        {active &&
+          (dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+      </button>
+    </th>
+  );
+}
+
 function ResultRow({
   result,
+  showIndexer,
   onDetail,
   onGrab,
   isGrabbing,
+  alreadyGrabbed,
 }: {
   result: SearchResult;
+  showIndexer: boolean;
   onDetail: () => void;
   onGrab: () => void;
   isGrabbing: boolean;
+  alreadyGrabbed: boolean;
 }) {
   const ageSeconds = result.publishDate
     ? Math.floor((Date.now() - new Date(result.publishDate).getTime()) / 1000)
     : 0;
 
-  const category = result.categories?.[0]?.name ?? "—";
+  const category = resolveCategoryLabel(result.categories);
 
   return (
     <tr>
@@ -329,8 +558,15 @@ function ResultRow({
       <td className="text-sm text-muted-foreground whitespace-nowrap">
         {result.size ? formatBytes(result.size) : "—"}
       </td>
-      <td className="hidden lg:table-cell text-sm text-muted-foreground">
-        {result.grabs ?? "—"}
+      {showIndexer && (
+        <td className="hidden lg:table-cell text-xs text-muted-foreground max-w-[120px] truncate" title={result.indexer}>
+          {result.indexer || "—"}
+        </td>
+      )}
+      <td className="text-sm whitespace-nowrap">
+        <span className={cn("font-medium", (result.grabs ?? 0) > 0 ? "text-foreground" : "text-muted-foreground")}>
+          {result.grabs ?? 0}
+        </span>
       </td>
       <td className="text-right">
         <button
@@ -338,15 +574,15 @@ function ResultRow({
             e.stopPropagation();
             onGrab();
           }}
-          disabled={isGrabbing}
+          disabled={isGrabbing || alreadyGrabbed}
           className={cn(
             "px-3 py-1.5 rounded text-xs font-semibold transition-all",
-            isGrabbing
+            isGrabbing || alreadyGrabbed
               ? "bg-muted text-muted-foreground cursor-not-allowed"
               : "bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground",
           )}
         >
-          {isGrabbing ? <Loader2 className="h-3 w-3 animate-spin" /> : "Grab"}
+          {isGrabbing ? <Loader2 className="h-3 w-3 animate-spin" /> : alreadyGrabbed ? "Grabbed" : "Grab"}
         </button>
       </td>
     </tr>

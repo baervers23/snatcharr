@@ -1,45 +1,52 @@
-# ── Build stage ────────────────────────────────────────────────────────────────
+# syntax=docker/dockerfile:1
+
 FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Install build dependencies for native modules (better-sqlite3)
 RUN apk add --no-cache python3 make g++ gcc
 
-COPY package*.json ./
+COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
 RUN npm run build
 
-# ── Runtime stage ──────────────────────────────────────────────────────────────
 FROM node:22-alpine AS runner
+
+ARG APP_VERSION=0.9.3
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
-RUN apk add --no-cache tini
+LABEL org.opencontainers.image.title="Snatcharr" \
+      org.opencontainers.image.version="${APP_VERSION}"
 
-# Non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN apk add --no-cache tini wget
 
-# Copy built artifacts
+# Build-time user (1001). Runtime UID/GID come from PUID/PGID via docker-entrypoint.sh.
+RUN addgroup --system --gid 1001 nodejs \
+ && adduser --system --uid 1001 -G nodejs nextjs
+
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Persistent volumes
-RUN mkdir -p /app/data /app/downloads && chown -R nextjs:nodejs /app/data /app/downloads
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
+ && chmod +x /usr/local/bin/docker-entrypoint.sh
 
-USER nextjs
+RUN mkdir -p /app/data /downloads \
+ && chown -R nextjs:nodejs /app/data /downloads
 
 EXPOSE 3000
 
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
 
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "server.js"]

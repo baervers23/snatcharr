@@ -4,17 +4,18 @@ import { indexers } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { parseProwlarrTagsInput, serializeProwlarrTags, DEFAULT_PROWLARR_SEARCH_TAGS } from "@/lib/prowlarr-tags";
+import { stripApiKeyFromResponse } from "@/lib/mask-secrets";
 
 export async function GET() {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Indexers are admin-only — regular users must never see them.
+  if (session?.user?.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const list = await db.query.indexers.findMany({ orderBy: (t, { asc }) => [asc(t.priority), asc(t.name)] });
-  const safe = list.map((i) => ({
-    ...i,
-    apiKey: session.user.role === "admin" ? i.apiKey : "***",
-  }));
-  return NextResponse.json({ indexers: safe });
+  return NextResponse.json({ indexers: list.map(stripApiKeyFromResponse) });
 }
 
 const indexerSchema = z.object({
@@ -23,6 +24,7 @@ const indexerSchema = z.object({
   url: z.string().url(),
   apiKey: z.string().min(1),
   categories: z.string().default(""),
+  prowlarrTags: z.string().default(""),
   priority: z.number().int().default(0),
 });
 
@@ -38,19 +40,24 @@ export async function POST(req: Request) {
     ? parsed.data.categories.split(",").map((c) => parseInt(c.trim())).filter((n) => !isNaN(n))
     : [];
 
+  const tagInput = parseProwlarrTagsInput(parsed.data.prowlarrTags);
+  const tagsToStore =
+    tagInput.length > 0 ? tagInput : [...DEFAULT_PROWLARR_SEARCH_TAGS];
+
   const [result] = await db.insert(indexers).values({
     name: parsed.data.name,
     type: parsed.data.type,
     url: parsed.data.url,
     apiKey: parsed.data.apiKey,
     categories: JSON.stringify(cats),
+    prowlarrTags: serializeProwlarrTags(tagsToStore),
     priority: parsed.data.priority,
     enabled: true,
     createdAt: new Date(),
     updatedAt: new Date(),
   }).returning();
 
-  return NextResponse.json({ indexer: result }, { status: 201 });
+  return NextResponse.json({ indexer: stripApiKeyFromResponse(result) }, { status: 201 });
 }
 
 export async function DELETE(req: Request) {

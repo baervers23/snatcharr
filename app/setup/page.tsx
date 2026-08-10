@@ -1,18 +1,16 @@
-import { redirect } from "next/navigation";
-import { getSetting } from "@/lib/db/settings";
 import SetupWizard from "@/components/setup/SetupWizard";
+import { getSetupPrefillData } from "@/lib/setup-prefill";
+import { getSetupPageStatus, isSetupComplete } from "@/lib/setup-status";
+import { redirect } from "next/navigation";
 
 export const metadata = { title: "Setup | Snatcharr" };
+export const dynamic = "force-dynamic";
 
 export default async function SetupPage() {
-  const setupCompleted = await getSetting("setupCompleted");
-  if (setupCompleted) {
-    redirect("/search");
+  if (await isSetupComplete()) {
+    redirect("/login");
   }
 
-  return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <SetupWizard />
-    </div>
-  );
+  const [prefill, setupStatus] = await Promise.all([getSetupPrefillData(), getSetupPageStatus()]);
+  return <SetupWizard prefill={prefill} setupStatus={setupStatus} />;
 }

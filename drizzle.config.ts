@@ -6,9 +6,7 @@ export default defineConfig({
   schema: "./lib/db/schema.ts",
   out: "./lib/db/migrations",
   dialect: dbUrl.startsWith("file:") ? "sqlite" : "postgresql",
-  dbCredentials: dbUrl.startsWith("file:")
-    ? { url: dbUrl }
-    : { url: dbUrl },
+  dbCredentials: dbUrl.startsWith("file:") ? { url: dbUrl } : { url: dbUrl },
   verbose: true,
   strict: true,
 });

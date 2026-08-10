@@ -1,176 +1,402 @@
 import { db } from "@/lib/db";
-import { downloadClients, externalApps, indexers, users } from "@/lib/db/schema";
-import { getSetting, setSetting } from "@/lib/db/settings";
+import {
+  users,
+  indexers as indexersTable,
+  downloadClients as downloadClientsTable,
+  externalApps as externalAppsTable,
+} from "@/lib/db/schema";
+import { getConfig } from "@/lib/config";
+import { setManySettings } from "@/lib/db/settings";
+import { saveSetupComplete, saveSetupDraft, SETUP_COOKIE } from "@/lib/setup-config";
+import { getSetupPrefillData, SETUP_ADMIN_ID } from "@/lib/setup-prefill";
+import { generalToDbSettings } from "@/lib/setup-settings";
+import { DEFAULT_PROWLARR_SEARCH_TAGS, serializeProwlarrTags } from "@/lib/prowlarr-tags";
 import bcrypt from "bcryptjs";
+import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-const setupSchema = z.object({
-  admin: z.object({
-    username: z.string().min(2).max(50),
-    password: z.string().min(8),
-    confirmPassword: z.string(),
-  }),
-  indexer: z
-    .object({
-      name: z.string(),
-      type: z.enum(["prowlarr"]), // Hier können weitere Typen wie "nzbget", "prowlarr" etc. hinzugefügt werden
-      url: z.string().url(),
-      apiKey: z.string(),
-      categories: z.string().default(""),
-    })
-    .nullable()
-    .optional(),
-  downloadClient: z
-    .object({
-      name: z.string(),
-      type: z.enum(["sabnzbd", "nzbget", "nzbvortex"]),
-      url: z.string().url(),
-      apiKey: z.string(),
-      category: z.string().default("snatcharr"),
-    })
-    .nullable()
-    .optional(),
-  apps: z
-    .object({
-      jellyfinUrl: z.string().optional(),
-      jellyfinApiKey: z.string().optional(),
-      seerrUrl: z.string().optional(),
-      seerrApiKey: z.string().optional(),
-    })
-    .optional(),
+
+const adminSchema = z.object({
+  username: z.string().min(2).max(50),
+  password: z.string().min(8),
+  confirmPassword: z.string(),
 });
 
-// === TEST SCHEMA (verbessert) ===
+const authMethodSchema = z.enum([
+  "local",
+  "jellyfin",
+  "organizr",
+  "organizr-sso",
+  "jfago",
+  "seerr",
+  "seerr-local",
+  "seerr-jellyfin",
+  "seerr-jellyfin-fallback",
+]);
+
+const generalSettingsSchema = z.object({
+  authMethod: authMethodSchema.default("local"),
+  signupEnabled: z.boolean().default(false),
+  requireEmail: z.boolean().default(false),
+  requireAppGrant: z.boolean().default(false),
+  maxSearchRequestsPerUserPerDay: z.number().int().min(0).default(0),
+  maxGrabsPerUserPerDay: z.number().int().min(0).default(0),
+  warningOnOpen: z.enum(["once", "always", "disabled"]).default("disabled"),
+  importantPopupText: z.string().default(""),
+});
+
+const setupSchema = z.object({
+  action: z.literal("complete"),
+  admin: adminSchema,
+  indexers: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        type: z.string(),
+        url: z.string().url(),
+        apiKey: z.string(),
+        categories: z.string().default(""),
+        tested: z.boolean().optional(),
+      }),
+    )
+    .default([]),
+  clients: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        type: z.string(),
+        url: z.string().url(),
+        apiKey: z.string(),
+        category: z.string().default("snatcharr"),
+        tested: z.boolean().optional(),
+      }),
+    )
+    .default([]),
+  apps: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        type: z.string(),
+        url: z.string().url(),
+        apiKey: z.string().default(""),
+        tested: z.boolean().optional(),
+      }),
+    )
+    .default([]),
+  generalSettings: generalSettingsSchema.default({}),
+});
+
 const testSchema = z.object({
   action: z.literal("test"),
-  type: z.enum(["prowlarr", "sabnzbd", "nzbget", "sonarr", "radarr", "lidarr", "readarr"]),
-  url: z.string().url("Ungültige URL"),
-  apiKey: z.string().min(5, "API-Key zu kurz"),
+  type: z.enum([
+    "prowlarr",
+    "nzbhydra2",
+    "jackett",
+    "sabnzbd",
+    "nzbget",
+    "qbittorrent",
+    "transmission",
+    "deluge",
+    "sonarr",
+    "radarr",
+    "lidarr",
+    "readarr",
+    "jellyfin",
+    "seerr",
+    "organizr",
+    "jfago",
+  ]),
+  url: z.string().url("Invalid URL"),
+  apiKey: z.string().default(""),
 });
+
+async function upsertSetupAdmin(admin: z.infer<typeof adminSchema>): Promise<void> {
+  if (admin.password !== admin.confirmPassword) {
+    throw new Error("PASSWORDS_MISMATCH");
+  }
+
+  const passwordHash = await bcrypt.hash(admin.password, 12);
+  const now = new Date();
+  const existing = await db.query.users.findFirst({
+    where: eq(users.id, SETUP_ADMIN_ID),
+  });
+
+  if (existing) {
+    await db
+      .update(users)
+      .set({
+        username: admin.username,
+        passwordHash,
+        role: "admin",
+        isActive: true,
+        updatedAt: now,
+      })
+      .where(eq(users.id, SETUP_ADMIN_ID));
+    return;
+  }
+
+  const sameUsername = await db.query.users.findFirst({
+    where: eq(users.username, admin.username),
+  });
+  if (sameUsername) {
+    await db
+      .update(users)
+      .set({
+        passwordHash,
+        role: "admin",
+        isActive: true,
+        updatedAt: now,
+      })
+      .where(eq(users.id, sameUsername.id));
+    return;
+  }
+
+  await db.insert(users).values({
+    id: SETUP_ADMIN_ID,
+    username: admin.username,
+    passwordHash,
+    role: "admin",
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+const progressSchema = z.object({
+  indexers: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        type: z.string(),
+        url: z.string(),
+        apiKey: z.string(),
+        categories: z.string().optional(),
+      }),
+    )
+    .optional(),
+  clients: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        type: z.string(),
+        url: z.string(),
+        apiKey: z.string(),
+        category: z.string().optional(),
+      }),
+    )
+    .optional(),
+  apps: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        type: z.string(),
+        url: z.string(),
+        apiKey: z.string().optional(),
+      }),
+    )
+    .optional(),
+  generalSettings: generalSettingsSchema.partial().optional(),
+});
+
+
+export async function GET() {
+  const prefill = await getSetupPrefillData();
+  const { getSetupPageStatus } = await import("@/lib/setup-status");
+  const status = await getSetupPageStatus();
+  return NextResponse.json({ ...prefill, status });
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    // === TEST CONNECTION ===
     if (body.action === "test") {
       const parsed = testSchema.safeParse(body);
       if (!parsed.success) {
-        console.error("[Test Schema Error]:", parsed.error.flatten());
         return NextResponse.json(
-          {
-            error: "Ungültige Test-Daten",
-            details: parsed.error.flatten().fieldErrors,
-          },
+          { error: "Invalid test data", details: parsed.error.flatten().fieldErrors },
           { status: 422 },
         );
       }
-      return await handleConnectionTest(parsed.data);
+      return handleConnectionTest(parsed.data);
     }
 
-    // === NORMAL SETUP ===
-    const setupCompleted = await getSetting("setupCompleted");
-    if (setupCompleted) {
-      return NextResponse.json({ error: "Setup already completed" }, { status: 400 });
+    if (body.action === "saveAdmin") {
+      const parsed = adminSchema.safeParse(body.admin);
+      if (!parsed.success) {
+        return NextResponse.json(
+          { error: "Invalid data", details: parsed.error.flatten().fieldErrors },
+          { status: 422 },
+        );
+      }
+      const configBefore = getConfig();
+      const configWasComplete = configBefore.setupComplete === true;
+      try {
+        await upsertSetupAdmin(parsed.data);
+        saveSetupDraft({ adminUsername: parsed.data.username });
+      } catch (err) {
+        if (err instanceof Error && err.message === "PASSWORDS_MISMATCH") {
+          return NextResponse.json({ error: "Passwords do not match" }, { status: 400 });
+        }
+        const message = err instanceof Error ? err.message : "Failed to save admin";
+        console.error("[Setup] saveAdmin failed:", err);
+        return NextResponse.json({ error: message }, { status: 500 });
+      }
+
+      if (configWasComplete) {
+        const { syncConfigConnectionsToDb, finalizeSetupState } = await import("@/lib/setup-repair");
+        await syncConfigConnectionsToDb();
+        await finalizeSetupState(parsed.data.username);
+        const res = NextResponse.json({ success: true, userId: SETUP_ADMIN_ID, finished: true });
+        res.cookies.set(SETUP_COOKIE, "done", {
+          httpOnly: true,
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60 * 24 * 365 * 10,
+        });
+        return res;
+      }
+
+      return NextResponse.json({ success: true, userId: SETUP_ADMIN_ID });
     }
 
-    const parsed = setupSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid data", details: parsed.error.flatten() },
-        { status: 422 },
+    if (body.action === "saveProgress") {
+      const config = getConfig();
+      if (config.setupComplete) {
+        return NextResponse.json({ error: "Setup already completed" }, { status: 400 });
+      }
+      const parsed = progressSchema.safeParse(body);
+      if (!parsed.success) {
+        return NextResponse.json({ error: "Invalid data" }, { status: 422 });
+      }
+      saveSetupDraft(parsed.data);
+      return NextResponse.json({ success: true });
+    }
+
+    if (body.action === "complete") {
+      const config = getConfig();
+      if (config.setupComplete) {
+        return NextResponse.json({ error: "Setup already completed" }, { status: 400 });
+      }
+
+      const parsed = setupSchema.safeParse(body);
+      if (!parsed.success) {
+        return NextResponse.json(
+          { error: "Invalid data", details: parsed.error.flatten() },
+          { status: 422 },
+        );
+      }
+
+      const { admin, indexers, clients, apps, generalSettings } = parsed.data;
+
+      try {
+        await upsertSetupAdmin(admin);
+      } catch (err) {
+        if (err instanceof Error && err.message === "PASSWORDS_MISMATCH") {
+          return NextResponse.json({ error: "Passwords do not match" }, { status: 400 });
+        }
+        throw err;
+      }
+
+      const now = new Date();
+
+      if (indexers.length > 0) {
+        await db.insert(indexersTable).values(
+          indexers.map((ix) => ({
+            name: ix.name || "Prowlarr",
+            type: ix.type,
+            url: ix.url,
+            apiKey: ix.apiKey,
+            categories: JSON.stringify(
+              ix.categories
+                ? ix.categories
+                    .split(",")
+                    .map((c) => parseInt(c.trim(), 10))
+                    .filter((n) => !isNaN(n))
+                : [],
+            ),
+            prowlarrTags: serializeProwlarrTags([...DEFAULT_PROWLARR_SEARCH_TAGS]),
+            enabled: true,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+      }
+
+      if (clients.length > 0) {
+        await db.insert(downloadClientsTable).values(
+          clients.map((cl) => ({
+            name: cl.name || cl.type,
+            type: cl.type as (typeof downloadClientsTable.$inferInsert)["type"],
+            url: cl.url,
+            apiKey: cl.apiKey,
+            category: cl.category,
+            enabled: true,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+      }
+
+      if (apps.length > 0) {
+        await db.insert(externalAppsTable).values(
+          apps.map((ap) => ({
+            name: ap.name || ap.type,
+            type: ap.type as (typeof externalAppsTable.$inferInsert)["type"],
+            url: ap.url,
+            apiKey: ap.apiKey || null,
+            enabled: true,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+      }
+
+      saveSetupComplete({
+        adminUsername: admin.username,
+        indexers,
+        clients,
+        apps,
+        generalSettings,
+      });
+
+      await setManySettings({
+        ...generalToDbSettings(generalSettings),
+        instanceName: config.instanceName,
+      });
+
+      const { syncGlobalGrabLimitToUsers } = await import("@/lib/user-limits-sync");
+      await syncGlobalGrabLimitToUsers(generalSettings.maxGrabsPerUserPerDay);
+
+      console.info(
+        `[Setup] Completed. Admin: ${admin.username}, Indexers: ${indexers.length}, Clients: ${clients.length}, Apps: ${apps.length}`,
       );
-    }
 
-    const { admin, indexer, downloadClient, apps } = parsed.data;
-
-    if (admin.password !== admin.confirmPassword) {
-      return NextResponse.json({ error: "Passwords do not match" }, { status: 400 });
-    }
-
-    // Create admin user
-    const passwordHash = await bcrypt.hash(admin.password, 12);
-    await db.insert(users).values({
-      username: admin.username,
-      passwordHash,
-      role: "admin",
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    // Indexer
-    if (indexer?.apiKey) {
-      const cats = indexer.categories
-        ? indexer.categories
-            .split(",")
-            .map((c) => parseInt(c.trim()))
-            .filter((n) => !isNaN(n))
-        : [];
-      await db.insert(indexers).values({
-        name: indexer.name,
-        type: indexer.type,
-        url: indexer.url,
-        apiKey: indexer.apiKey,
-        categories: JSON.stringify(cats),
-        enabled: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      const res = NextResponse.json({ success: true });
+      res.cookies.set(SETUP_COOKIE, "done", {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 365 * 10,
       });
+      return res;
     }
 
-    // Download Client
-    if (downloadClient?.apiKey) {
-      await db.insert(downloadClients).values({
-        name: downloadClient.name || "SABnzbd",
-        type: downloadClient.type,
-        url: downloadClient.url,
-        apiKey: downloadClient.apiKey,
-        category: downloadClient.category,
-        enabled: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-    }
-
-    // External Apps
-    if (apps) {
-      if (apps.jellyfinUrl && apps.jellyfinApiKey) {
-        await db.insert(externalApps).values({
-          name: "Jellyfin",
-          type: "jellyfin",
-          url: apps.jellyfinUrl,
-          apiKey: apps.jellyfinApiKey,
-          enabled: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-      }
-      if (apps.seerrUrl && apps.seerrApiKey) {
-        await db.insert(externalApps).values({
-          name: "Seerr",
-          type: "seerr",
-          url: apps.seerrUrl,
-          apiKey: apps.seerrApiKey,
-          enabled: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
-      }
-    }
-
-    await setSetting("setupCompleted", true);
-    await setSetting("instanceName", "Snatcharr");
-
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
+    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  } catch (err: unknown) {
     console.error("[Setup] Error:", err);
-    return NextResponse.json({ error: "Setup fehlgeschlagen" }, { status: 500 });
+    return NextResponse.json({ error: "Setup failed" }, { status: 500 });
   }
 }
 
-// ==================== CONNECTION TEST HANDLER (verbessert) ====================
+
 async function handleConnectionTest({
   type,
   url,
@@ -181,21 +407,15 @@ async function handleConnectionTest({
   apiKey: string;
 }) {
   try {
-    // URL bereinigen und validieren
-    let cleanUrl = url.trim();
-
+    let cleanUrl = url.trim().replace(/\/$/, "");
     if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
       cleanUrl = "http://" + cleanUrl;
     }
 
-    cleanUrl = cleanUrl.replace(/\/$/, ""); // trailing slash entfernen
-
-    console.log(`[Connection Test][${type}] Testing: ${cleanUrl}`);
-
     let testUrl = "";
     let headers: HeadersInit = {};
     let method: "GET" | "POST" = "GET";
-    let body: any = undefined;
+    let reqBody: string | undefined;
 
     switch (type.toLowerCase()) {
       case "prowlarr":
@@ -203,11 +423,24 @@ async function handleConnectionTest({
         headers = { "X-Api-Key": apiKey };
         break;
 
+      // NZBHydra2 — GET /api?t=caps (works with or without API key)
+      case "nzbhydra2":
+        testUrl = apiKey
+          ? `${cleanUrl}/api?t=caps&apikey=${encodeURIComponent(apiKey)}`
+          : `${cleanUrl}/api?t=caps`;
+        break;
+
+      // Jackett — GET /api/v2.0/indexers/all/results/torznab?t=caps
+      case "jackett":
+        testUrl = `${cleanUrl}/api/v2.0/indexers/all/results/torznab/api?t=caps&apikey=${encodeURIComponent(apiKey)}`;
+        break;
+
       case "sonarr":
       case "radarr":
       case "lidarr":
       case "readarr":
-        testUrl = `${cleanUrl}/api/v1/system/status?apikey=${encodeURIComponent(apiKey)}`;
+        testUrl = `${cleanUrl}/api/v1/system/status`;
+        headers = { "X-Api-Key": apiKey };
         break;
 
       case "sabnzbd":
@@ -218,65 +451,78 @@ async function handleConnectionTest({
         testUrl = `${cleanUrl}/jsonrpc`;
         method = "POST";
         headers = { "Content-Type": "application/json" };
-        body = JSON.stringify({ method: "status", params: [], id: 1 });
+        reqBody = JSON.stringify({ method: "status", params: [], id: 1 });
+        break;
+
+      case "qbittorrent":
+        testUrl = `${cleanUrl}/api/v2/app/version`;
+        break;
+
+      case "transmission":
+        testUrl = `${cleanUrl}/transmission/rpc`;
+        break;
+
+      case "deluge":
+        testUrl = `${cleanUrl}/json`;
+        method = "POST";
+        headers = { "Content-Type": "application/json" };
+        reqBody = JSON.stringify({ method: "auth.check_session", params: [], id: 1 });
+        break;
+
+      case "jellyfin":
+        testUrl = `${cleanUrl}/System/Info/Public`;
+        if (apiKey) headers = { "X-MediaBrowser-Token": apiKey };
+        break;
+
+      case "seerr":
+        testUrl = `${cleanUrl}/api/v1/status`;
+        if (apiKey) headers = { "X-Api-Key": apiKey };
+        break;
+
+      case "organizr":
+        testUrl = `${cleanUrl}/api/?v=1&apikey=${encodeURIComponent(apiKey)}&call=user/checkKey`;
         break;
 
       default:
-        return NextResponse.json({ error: "Unbekannter Typ" }, { status: 400 });
+        return NextResponse.json({ error: "Unknown service type" }, { status: 400 });
     }
 
-    console.log(`[Connection Test][${type}] Fetching: ${testUrl}`);
+    console.info(`[Connection Test][${type}] → ${testUrl}`);
 
     const response = await fetch(testUrl, {
       method,
       headers,
-      body,
+      body: reqBody,
       cache: "no-store",
-      signal: AbortSignal.timeout(12000), // 12 Sekunden
+      signal: AbortSignal.timeout(12_000),
     });
 
     if (response.ok) {
-      return NextResponse.json({
-        success: true,
-        message: "Verbindung erfolgreich",
-      });
+      return NextResponse.json({ success: true, message: "Connected successfully" });
     }
 
-    let errorMsg = `Status ${response.status}`;
+    let errorMsg = `HTTP ${response.status}`;
     try {
-      const errData = await response.json().catch(() => ({}));
-      errorMsg = errData.error || errData.message || errorMsg;
+      const errData = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+      errorMsg = errData.error ?? errData.message ?? errorMsg;
     } catch {
-      // Ignore JSON parse errors, we already have a fallback error message
+      // keep the status-code message
     }
 
-    return NextResponse.json(
-      {
-        error: errorMsg,
-        status: response.status,
-        url: testUrl,
-      },
-      { status: 400 },
-    );
-  } catch (error: any) {
-    console.error(`[Connection Test][${type}] Error:`, error);
+    return NextResponse.json({ error: errorMsg, status: response.status }, { status: 400 });
+  } catch (error: unknown) {
+    const err = error as { message?: string; name?: string; code?: string };
+    console.error(`[Connection Test][${type}] Error:`, err);
 
-    let message = "Verbindung fehlgeschlagen.";
-
-    if (error.message?.includes("unknown scheme") || error.message?.includes("Invalid URL")) {
-      message = "Ungültige URL. Bitte mit http:// oder https:// beginnen.";
-    } else if (error.name === "TimeoutError") {
-      message = "Timeout: Der Dienst antwortet nicht (läuft er und ist erreichbar?)";
-    } else if (error.code === "ECONNREFUSED") {
-      message = "Verbindung verweigert – Dienst läuft nicht oder falsche IP/Port.";
+    let message = "Connection failed.";
+    if (err.name === "TimeoutError") {
+      message = "Timeout — is the service running and reachable?";
+    } else if (err.code === "ECONNREFUSED") {
+      message = "Connection refused — service not running or wrong IP/port.";
+    } else if (err.message?.includes("Invalid URL")) {
+      message = "Invalid URL — must start with http:// or https://";
     }
 
-    return NextResponse.json(
-      {
-        error: message,
-        details: error.message,
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: message, details: err.message }, { status: 500 });
   }
 }

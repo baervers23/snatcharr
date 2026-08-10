@@ -1,7 +1,3 @@
-/**
- * Simple in-memory rate limiter (use Redis adapter in production via REDIS_URL env).
- */
-
 interface RateLimitEntry {
   count: number;
   resetAt: number;
@@ -9,7 +5,7 @@ interface RateLimitEntry {
 
 const store = new Map<string, RateLimitEntry>();
 
-export interface RateLimitOptions {
+interface RateLimitOptions {
   windowMs: number;
   max: number;
   keyPrefix?: string;
@@ -21,7 +17,7 @@ export interface RateLimitResult {
   resetAt: number;
 }
 
-export function rateLimit(key: string, options: RateLimitOptions): RateLimitResult {
+function rateLimit(key: string, options: RateLimitOptions): RateLimitResult {
   const { windowMs, max, keyPrefix = "rl" } = options;
   const storeKey = `${keyPrefix}:${key}`;
   const now = Date.now();
@@ -42,7 +38,6 @@ export function rateLimit(key: string, options: RateLimitOptions): RateLimitResu
   return { allowed: true, remaining: max - entry.count, resetAt: entry.resetAt };
 }
 
-// Cleanup old entries periodically
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of store.entries()) {
@@ -50,12 +45,8 @@ setInterval(() => {
   }
 }, 60_000);
 
-/** Convenience: 10 search requests per minute per IP */
-export function searchRateLimit(ip: string): RateLimitResult {
-  return rateLimit(ip, { windowMs: 60_000, max: 30, keyPrefix: "search" });
+export function searchRateLimit(ip: string, maxPerMinute = 30): RateLimitResult {
+  const max = maxPerMinute > 0 ? maxPerMinute : 30;
+  return rateLimit(ip, { windowMs: 60_000, max, keyPrefix: "search" });
 }
 
-/** Login attempts: 5 per 15 min per IP */
-export function loginRateLimit(ip: string): RateLimitResult {
-  return rateLimit(ip, { windowMs: 15 * 60_000, max: 5, keyPrefix: "login" });
-}

@@ -10,6 +10,7 @@ interface DownloadClient {
   name: string;
   type: string;
   enabled: boolean;
+  isDefault?: boolean;
 }
 
 interface Props {
@@ -29,7 +30,8 @@ export default function GrabConfirmModal({ result, onClose, onConfirm }: Props) 
       .then((data: { clients?: DownloadClient[] }) => {
         const active = (data.clients ?? []).filter((c) => c.enabled);
         setClients(active);
-        if (active.length > 0) setSelectedClient(active[0].id);
+        const def = active.find((c) => c.isDefault) ?? active[0];
+        if (def) setSelectedClient(def.id);
       })
       .catch(console.error)
       .finally(() => setLoadingClients(false));
@@ -82,7 +84,7 @@ export default function GrabConfirmModal({ result, onClose, onConfirm }: Props) 
               >
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.type})
+                    {c.name} ({c.type}){c.isDefault ? " — default" : ""}
                   </option>
                 ))}
               </select>
