@@ -184,14 +184,6 @@ docker run -d \
   baervers23/snatcharr:latest
 ```
 
-Push to a registry (after `docker login`):
-
-```bash
-docker push baervers23/snatcharr:latest
-```
-
-To use your own build in Compose, comment out `image:` and uncomment the `build:` block in `docker-compose.yml`.
-
 ---
 
 ## Run without Docker
