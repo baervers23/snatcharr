@@ -244,7 +244,7 @@ DB migrations run automatically on startup (`instrumentation.ts`).
 | --- | --- | --- |
 | `AUTH_URL` | Yes | Public app URL |
 | `AUTH_SECRET` | Yes | Session signing key |
-| `PUID` / `PGID` | Yes | Container user — match volume ownership |
+| `PUID` / `PGID` | No | Container user — match volume ownership |
 | `PORT` | No | Published port (default `3000`) |
 | `DATABASE_URL` | No | Default `file:/app/data/snatcharr.db` |
 | `APP_VERSION` | No | Build label (Docker build arg) |
