@@ -147,6 +147,13 @@ docker compose pull && docker compose up -d    # update to latest image tag
 docker compose down
 ```
 
+## Sabnzbd Configuration
+
+Sabnzbd need bind the same volume folder like snatcharr is configured and create a new categorie in sabznbd where you choose exactly this folder
+
+ <img src="docs/images/Untitled.png" alt="Security settings">
+
+
 ## Reverse proxy
 
 By default the app publishes port **3000**. Put it behind Nginx Proxy Manager, Traefik, etc.:
