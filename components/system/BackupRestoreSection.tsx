@@ -3,8 +3,10 @@
 import { Download, Upload } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n/client";
 
 export default function BackupRestoreSection({ canDownloadBackup }: { canDownloadBackup: boolean }) {
+  const t = useT();
   const [restoring, setRestoring] = useState(false);
 
   async function exportBackup() {
@@ -12,7 +14,7 @@ export default function BackupRestoreSection({ canDownloadBackup }: { canDownloa
       const res = await fetch("/api/settings/backup");
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? "Export failed");
+        throw new Error(data.error ?? t("system.exportFailed"));
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -21,16 +23,16 @@ export default function BackupRestoreSection({ canDownloadBackup }: { canDownloa
       a.download = `snatcharr-settings-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("Settings backup downloaded");
+      toast.success(t("system.exportOk"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Export failed");
+      toast.error(err instanceof Error ? err.message : t("system.exportFailed"));
     }
   }
 
   async function restoreBackup(file: File) {
     if (
       !confirm(
-        "Restore all settings from backup? Indexers, download clients, and apps will be replaced.",
+        t("system.restoreConfirm"),
       )
     ) {
       return;
@@ -45,11 +47,11 @@ export default function BackupRestoreSection({ canDownloadBackup }: { canDownloa
         body: JSON.stringify(payload),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Restore failed");
-      toast.success("Settings restored");
+      if (!res.ok) throw new Error(data.error ?? t("system.restoreFailed"));
+      toast.success(t("system.restoreOk"));
       window.location.reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Restore failed");
+      toast.error(err instanceof Error ? err.message : t("system.restoreFailed"));
     } finally {
       setRestoring(false);
     }
@@ -57,9 +59,9 @@ export default function BackupRestoreSection({ canDownloadBackup }: { canDownloa
 
   return (
     <div className="nv-card p-5 space-y-3">
-      <h3 className="text-sm font-semibold">Backup &amp; restore</h3>
+      <h3 className="text-sm font-semibold">{t("system.backupRestore")}</h3>
       <p className="text-xs text-muted-foreground">
-        Export all settings, indexers, download clients, and additional apps to a JSON file.
+        {t("system.exportDesc")}
       </p>
       <div className="flex flex-wrap items-center gap-3">
         {canDownloadBackup ? (
@@ -69,16 +71,16 @@ export default function BackupRestoreSection({ canDownloadBackup }: { canDownloa
             onClick={exportBackup}
           >
             <Download className="h-4 w-4" />
-            Export backup
+            {t("system.exportBackup")}
           </button>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Only the primary administrator (user ID 1) can download backups.
+            {t("system.adminOnlyBackup")}
           </p>
         )}
         <label className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md border border-border bg-muted/40 hover:bg-muted/70 transition-colors cursor-pointer">
           <Upload className="h-4 w-4" />
-          {restoring ? "Restoring…" : "Restore backup"}
+          {restoring ? t("system.restoring") : t("system.restore")}
           <input
             type="file"
             accept="application/json,.json"

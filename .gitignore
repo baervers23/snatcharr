@@ -38,6 +38,7 @@ desktop.ini
 **/*Zone.Identifier
 
 # Editor / IDE
+.vscode/
 .vscode/*
 !.vscode/settings.json
 .idea/
@@ -50,8 +51,10 @@ desktop.ini
 # Deploy
 .vercel
 
-# vscode
-.vscode/
-
 # notes
 .docker-dev
+
+#agent
+.cursor/
+.cursor/*
+.cursorignore

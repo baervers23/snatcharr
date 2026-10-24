@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { invalidateConfigCache, getConfig, updateConfig } from "./config";
+import { invalidateConfigCache, getConfig } from "./config";
 import { configFileExists } from "./setup-config";
 import { getConfigPath } from "./paths";
 import { getDbPath } from "./db/migrate";
@@ -119,21 +119,21 @@ export function logStartupConfigStatus(): void {
   );
 }
 
-/** Setup is done when a local admin with password exists. */
+/**
+ * Setup is done only when config.json has setupComplete: true
+ * and a primary local admin with password exists.
+ * Creating an admin alone must not skip the rest of the wizard.
+ */
 export async function isSetupComplete(): Promise<boolean> {
   try {
     const { ensureDatabaseReady } = await import("./db/migrate");
     ensureDatabaseReady();
 
     invalidateConfigCache();
-    const hasAdmin = hasPrimaryLocalAdminSync();
-    if (!hasAdmin) return false;
-
     const config = getConfig();
-    if (!truthySetupFlag(config.setupComplete)) {
-      updateConfig({ setupComplete: true });
-    }
-    return true;
+    if (!truthySetupFlag(config.setupComplete)) return false;
+
+    return hasPrimaryLocalAdminSync();
   } catch (err) {
     console.error("[Setup] isSetupComplete failed:", err);
     return false;

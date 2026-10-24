@@ -2,6 +2,7 @@
 import type { AppSettings } from "@/lib/db/settings";
 import { formatTimeUntilReset } from "@/lib/daily-limits";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 import { BarChart2, Bell, Eye, Key, Loader2, Mail, Save, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -43,6 +44,7 @@ export default function ProfileView({
   canUploadNzb,
   limits,
 }: Props) {
+  const t = useT();
   const router = useRouter();
   const hasEmail = !!savedEmail?.trim();
   const [email, setEmail] = useState(savedEmail ?? "");
@@ -72,30 +74,30 @@ export default function ProfileView({
         toast.error(
           data.error ??
             (response.status === 422
-              ? "Please enter a valid email address"
+              ? t("profile.invalidEmail")
               : response.status === 403
-                ? "Email cannot be changed once it is set"
-                : "Failed to save profile"),
+                ? t("profile.emailCannotChange")
+                : t("profile.saveFailed")),
         );
         return;
       }
-      toast.success("Profile updated");
+      toast.success(t("profile.profileUpdated"));
       if (!hasEmail && email.trim()) {
         router.refresh();
       }
     } catch {
-      toast.error("Failed to save profile");
+      toast.error(t("profile.saveFailed"));
     } finally {
       setSaving(false);
     }
   }
   async function changePassword() {
     if (passwordForm.newPass !== passwordForm.confirm) {
-      toast.error("Passwords do not match");
+      toast.error(t("profile.passwordMismatch"));
       return;
     }
     if (passwordForm.newPass.length < 8) {
-      toast.error("Password must be at least 8 characters");
+      toast.error(t("profile.passwordMinLength"));
       return;
     }
     setChangingPassword(true);
@@ -107,13 +109,13 @@ export default function ProfileView({
       });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) {
-        toast.error(data.error ?? "Failed to change password");
+        toast.error(data.error ?? t("profile.changePasswordFailed"));
         return;
       }
-      toast.success("Password changed");
+      toast.success(t("profile.passwordChanged"));
       setPasswordForm({ current: "", newPass: "", confirm: "" });
     } catch {
-      toast.error("Failed to change password");
+      toast.error(t("profile.changePasswordFailed"));
     } finally {
       setChangingPassword(false);
     }
@@ -153,10 +155,12 @@ export default function ProfileView({
     <div className="max-w-xl mx-auto space-y-6">
       <h1 className="text-xl font-semibold flex items-center gap-2">
         <User className="h-5 w-5 text-primary" />
-        My Profile
+        {t("profile.title")}
       </h1>
       <div className="nv-card p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Account</h2>
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          {t("profile.account")}
+        </h2>
         <div className="flex items-center gap-4">
           {avatarUrl ? (
             <Image
@@ -181,39 +185,62 @@ export default function ProfileView({
       <div className="nv-card p-5 space-y-4">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
           <BarChart2 className="h-4 w-4" />
-          Daily limits
+          {t("profile.dailyLimits")}
         </h2>
         <p className="text-xs text-muted-foreground">
-          Resets in {formatTimeUntilReset(limits.resetInMs)} (daily at {limits.resetAtHour}:00)
+          {t("profile.resetsIn", {
+            time: formatTimeUntilReset(limits.resetInMs),
+            hour: limits.resetAtHour,
+          })}
         </p>
         <div className="space-y-2 border-t border-border pt-3">
-          <LimitRow label="Search" used={limits.searchUsed} max={limits.searchMax} scope="global" />
-          <LimitRow label="Grabs" used={limits.grabUsed} max={limits.globalGrabMax} scope="global" />
+          <LimitRow
+            label={t("profile.limitSearch")}
+            used={limits.searchUsed}
+            max={limits.searchMax}
+            scope={t("profile.scopeGlobal")}
+          />
+          <LimitRow
+            label={t("profile.limitGrabs")}
+            used={limits.grabUsed}
+            max={limits.globalGrabMax}
+            scope={t("profile.scopeGlobal")}
+          />
           {limits.grabMax > 0 && limits.grabMax !== limits.globalGrabMax && (
-            <LimitRow label="Grabs" used={limits.personalGrabUsed} max={limits.grabMax} scope="personal" />
+            <LimitRow
+              label={t("profile.limitGrabs")}
+              used={limits.personalGrabUsed}
+              max={limits.grabMax}
+              scope={t("profile.scopePersonal")}
+            />
           )}
-          <LimitRow label="Downloads" used={limits.downloadUsed} max={limits.downloadMax} scope="personal" />
+          <LimitRow
+            label={t("profile.limitDownloads")}
+            used={limits.downloadUsed}
+            max={limits.downloadMax}
+            scope={t("profile.scopePersonal")}
+          />
           {canUploadNzb && (limits.manualNzbMax ?? 0) > 0 && (
             <LimitRow
-              label="Manual NZB"
+              label={t("profile.limitManualNzb")}
               used={limits.manualNzbUsed ?? 0}
               max={limits.manualNzbMax ?? 0}
-              scope="personal"
+              scope={t("profile.scopePersonal")}
             />
           )}
         </div>
       </div>
       <div className="nv-card p-5 space-y-5">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Preferences</h2>
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          {t("profile.preferences")}
+        </h2>
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
               <Eye className="h-4 w-4 text-muted-foreground" />
-              <p className="text-sm font-medium">Show grabs to all users</p>
+              <p className="text-sm font-medium">{t("profile.showGrabs")}</p>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5 ml-6">
-              New search grabs are visible to every Snatcharr user
-            </p>
+            <p className="text-xs text-muted-foreground mt-0.5 ml-6">{t("profile.showGrabsDesc")}</p>
           </div>
           <Toggle checked={showGrabsPublic} onChange={() => setShowGrabsPublic(!showGrabsPublic)} />
         </div>
@@ -221,10 +248,10 @@ export default function ProfileView({
           <div>
             <div className="flex items-center gap-2">
               <Bell className="h-4 w-4 text-muted-foreground" />
-              <p className="text-sm font-medium">Email notifications</p>
+              <p className="text-sm font-medium">{t("profile.emailNotifications")}</p>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5 ml-6">
-              Notify when a download is ready
+              {t("profile.emailNotificationsDesc")}
             </p>
           </div>
           <Toggle checked={emailNotifications} onChange={() => setEmailNotifications(!emailNotifications)} />
@@ -236,18 +263,22 @@ export default function ProfileView({
             className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save preferences
+            {t("profile.savePreferences")}
           </button>
         </div>
       </div>
       <div className={cn("nv-card p-5 space-y-4", externalAuth && !hasEmail && "opacity-60")}>
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
           <Key className="h-4 w-4" />
-          {externalAuth && !hasEmail ? "Email & password" : externalAuth ? "Email" : "Email & password"}
+          {externalAuth && !hasEmail
+            ? t("profile.emailPassword")
+            : externalAuth
+              ? t("profile.emailOnly")
+              : t("profile.emailPassword")}
         </h2>
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <Mail className="h-3.5 w-3.5" /> Email address
+            <Mail className="h-3.5 w-3.5" /> {t("profile.emailAddress")}
           </label>
           <input
             className={cn("nv-input w-full", hasEmail && "opacity-70 cursor-not-allowed")}
@@ -255,13 +286,11 @@ export default function ProfileView({
             value={email}
             onChange={hasEmail ? undefined : (e) => setEmail(e.target.value)}
             readOnly={hasEmail}
-            placeholder="you@example.com"
+            placeholder={t("auth.emailPlaceholder")}
             autoComplete="email"
           />
           {hasEmail ? (
-            <p className="text-xs text-muted-foreground">
-              Set by sync or admin — contact an admin to change.
-            </p>
+            <p className="text-xs text-muted-foreground">{t("profile.emailLockedHint")}</p>
           ) : (
             <div className="flex justify-end pt-2">
               <button
@@ -270,7 +299,7 @@ export default function ProfileView({
                 className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save email
+                {t("profile.saveEmail")}
               </button>
             </div>
           )}
@@ -279,9 +308,9 @@ export default function ProfileView({
           <>
             <div className="space-y-3 border-t border-border pt-4">
               {[
-                { label: "Current password", key: "current" as const },
-                { label: "New password (min 8 chars)", key: "newPass" as const },
-                { label: "Confirm new password", key: "confirm" as const },
+                { label: t("profile.currentPassword"), key: "current" as const },
+                { label: t("profile.newPasswordMin"), key: "newPass" as const },
+                { label: t("profile.confirmNewPassword"), key: "confirm" as const },
               ].map(({ label, key }) => (
                 <div key={key} className="space-y-1">
                   <label className="text-xs text-muted-foreground">{label}</label>
@@ -302,14 +331,14 @@ export default function ProfileView({
                 className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
               >
                 {changingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <Key className="h-4 w-4" />}
-                Change password
+                {t("profile.changePassword")}
               </button>
             </div>
           </>
         )}
         {externalAuth && (
           <p className="text-sm text-muted-foreground border-t border-border pt-4">
-            Password is managed by your external login provider.
+            {t("profile.externalPassword")}
           </p>
         )}
       </div>

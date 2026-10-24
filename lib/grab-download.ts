@@ -18,6 +18,8 @@ import {
   prepareGrabDirectory,
   resolveGrabFileByIndex,
 } from "@/lib/grab-files";
+import { getSetting } from "@/lib/db/settings";
+import { createByteRateLimiter, mbitToBytesPerSec } from "@/lib/download-throttle";
 
 export async function serveGrabDownload(req: Request, grabId: string) {
   const session = await auth();
@@ -39,6 +41,10 @@ export async function serveGrabDownload(req: Request, grabId: string) {
     });
     return NextResponse.json({ error: downloadGrant.reason ?? "Forbidden" }, { status: 403 });
   }
+
+  const speedLimitMbit =
+    session.user.role === "admin" ? 0 : await getSetting("userDownloadSpeedLimitMbit");
+  const bytesPerSec = mbitToBytesPerSec(speedLimitMbit);
 
   const maxDownloads = await effectiveDownloadLimitPerDay(session.user.id);
   if (maxDownloads > 0) {
@@ -109,7 +115,9 @@ export async function serveGrabDownload(req: Request, grabId: string) {
       return NextResponse.json({ error: "Invalid file" }, { status: 400 });
     }
 
-    const stream = fs.createReadStream(resolved);
+    const fileStream = fs.createReadStream(resolved);
+    const stream =
+      bytesPerSec > 0 ? fileStream.pipe(createByteRateLimiter(bytesPerSec)) : fileStream;
     const filename = path.basename(resolved);
 
     await incrementDownloadCount(session.user.id);
@@ -127,6 +135,8 @@ export async function serveGrabDownload(req: Request, grabId: string) {
 
   const archive = archiver("zip", { zlib: { level: 5 } });
   const passThrough = new PassThrough();
+  const output =
+    bytesPerSec > 0 ? passThrough.pipe(createByteRateLimiter(bytesPerSec)) : passThrough;
   archive.pipe(passThrough);
 
   for (const f of listGrabFiles(dir)) {
@@ -144,7 +154,7 @@ export async function serveGrabDownload(req: Request, grabId: string) {
 
   void archive.finalize();
   const safeName = grab.title.replace(/[^\w.-]+/g, "_").slice(0, 80);
-  return new NextResponse(Readable.toWeb(passThrough) as ReadableStream, {
+  return new NextResponse(Readable.toWeb(output) as ReadableStream, {
     headers: {
       ...secureDownloadHeaders(`${safeName}.zip`),
       "Content-Type": "application/zip",

@@ -2,7 +2,6 @@
 
 import type { DownloadClient, ExternalApp, Indexer } from "@/lib/db/schema";
 import type { ApiKeyMasked } from "@/lib/mask-secrets";
-import { AUTH_METHOD_HELP } from "@/lib/auth-methods";
 import {
   DEFAULT_GRAB_EXTENSION_LIMITS,
   type AppSettings,
@@ -10,7 +9,6 @@ import {
 } from "@/lib/db/settings-shared";
 import { defaultServiceUrl } from "@/lib/service-urls";
 import {
-  ADDITIONAL_APP_LOGIN_NOTE,
   ADDITIONAL_APP_TYPES,
   additionalAppMeta,
   type AdditionalAppType,
@@ -18,10 +16,7 @@ import {
 import { cn, CATEGORY_GROUPS } from "@/lib/utils";
 import { CheckCircle2, Download, Edit2, Info, Layers, Loader2, Mail, Plus, Save, Search, Settings, Shield, Trash2, X, XCircle } from "lucide-react";
 import { GRAB_EMAIL_VARIABLES } from "@/lib/email-template";
-import {
-  canEnforceRequireEmailFromConfig,
-  REQUIRE_EMAIL_DESCRIPTION,
-} from "@/lib/email-requirements";
+import { canEnforceRequireEmailFromConfig } from "@/lib/email-requirements";
 import {
   DEFAULT_PROWLARR_SEARCH_TAGS,
   formatProwlarrTagsInput,
@@ -30,23 +25,26 @@ import {
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n/client";
+import { SUPPORTED_LOCALES } from "@/lib/i18n/config";
 
 type SettingsTab = "general" | "email" | "search" | "security" | "indexers" | "clients" | "apps";
 
-const TABS: Array<{ id: SettingsTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: "general", label: "General", icon: Settings },
-  { id: "email", label: "Email", icon: Mail },
-  { id: "search", label: "Search", icon: Search },
-  { id: "security", label: "Security", icon: Shield },
-  { id: "indexers", label: "Indexers", icon: Layers },
-  { id: "clients", label: "Download Clients", icon: Download },
-  { id: "apps", label: "Additional Apps", icon: Layers },
+const TABS: Array<{ id: SettingsTab; labelKey: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { id: "general", labelKey: "settings.tabs.general", icon: Settings },
+  { id: "email", labelKey: "settings.tabs.email", icon: Mail },
+  { id: "search", labelKey: "settings.tabs.search", icon: Search },
+  { id: "security", labelKey: "settings.tabs.security", icon: Shield },
+  { id: "indexers", labelKey: "settings.tabs.indexers", icon: Layers },
+  { id: "clients", labelKey: "settings.tabs.clients", icon: Download },
+  { id: "apps", labelKey: "settings.tabs.apps", icon: Layers },
 ];
 
 async function testConnection(
   type: string,
   url: string,
   apiKey: string,
+  fallbackError: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const r = await fetch("/api/setup", {
@@ -56,10 +54,26 @@ async function testConnection(
     });
     const d = (await r.json()) as { success?: boolean; error?: string };
     if (r.ok && d.success) return { ok: true };
-    return { ok: false, error: d.error ?? "Connection failed" };
+    return { ok: false, error: d.error ?? fallbackError };
   } catch {
-    return { ok: false, error: "Connection failed" };
+    return { ok: false, error: fallbackError };
   }
+}
+
+function CodeText({ text, codeClassName }: { text: string; codeClassName?: string }) {
+  return (
+    <>
+      {text.split("`").map((part, index) =>
+        index % 2 === 1 ? (
+          <code key={index} className={codeClassName}>
+            {part}
+          </code>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
 }
 
 type MaskedIndexer = ApiKeyMasked<Indexer>;
@@ -79,6 +93,7 @@ function tabFromParam(param: string | null): SettingsTab {
 }
 
 export default function SettingsView({ settings: initialSettings, indexers: initialIndexers, downloadClients: initialClients, externalApps: initialApps }: Props) {
+  const t = useT();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => tabFromParam(searchParams.get("tab")));
   const [settings, setSettings] = useState(initialSettings);
@@ -96,15 +111,21 @@ export default function SettingsView({ settings: initialSettings, indexers: init
         body: JSON.stringify(partial),
       });
       const data = (await response.json().catch(() => ({}))) as { error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Save failed");
+      if (!response.ok) throw new Error(data.error ?? t("settings.saveFailed"));
       setSettings((prev) => ({
         ...prev,
         ...partial,
         ...(partial.smtpPassword !== undefined ? { smtpPassword: "***" } : {}),
       }));
-      toast.success("Settings saved");
+      toast.success(t("settings.saved"));
+      const languageChanged =
+        partial.uiLanguage !== undefined &&
+        partial.uiLanguage !== (settings.uiLanguage ?? "en");
+      if (languageChanged) {
+        window.location.reload();
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save settings");
+      toast.error(err instanceof Error ? err.message : t("settings.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -114,7 +135,7 @@ export default function SettingsView({ settings: initialSettings, indexers: init
     <div className="max-w-6xl mx-auto space-y-6">
       <h1 className="text-xl font-semibold flex items-center gap-2">
         <Settings className="h-5 w-5 text-primary" />
-        Settings
+        {t("nav.settings")}
       </h1>
 
       <div className="flex gap-6">
@@ -134,7 +155,7 @@ export default function SettingsView({ settings: initialSettings, indexers: init
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {tab.label}
+                {t(tab.labelKey)}
               </button>
             );
           })}
@@ -193,12 +214,15 @@ function GeneralTab({
   onSave: (s: Partial<AppSettings>) => void;
   saving: boolean;
 }) {
+  const t = useT();
   const emailEnforce = canEnforceRequireEmailFromConfig(settings, apps);
   const [form, setForm] = useState({
     logLevel: settings.logLevel ?? "info",
     completedGrabKeepDays: settings.completedGrabKeepDays ?? 7,
     infoPopupMode: settings.infoPopupMode ?? (settings.infoPopupEnabled ? "always" : "disabled"),
+    infoPopupTitle: settings.infoPopupTitle ?? "",
     infoPopupText: settings.infoPopupText ?? "",
+    uiLanguage: settings.uiLanguage ?? "en",
     signupEnabled: settings.signupEnabled ?? false,
     requireEmail: settings.requireEmail ?? false,
     requireAppGrant: settings.requireAppGrant ?? false,
@@ -210,42 +234,58 @@ function GeneralTab({
   return (
     <div className="space-y-4">
       <div className="nv-card p-5 space-y-5">
-        <h2 className="text-base font-semibold">General Settings</h2>
+        <h2 className="text-base font-semibold">{t("settings.general.heading")}</h2>
 
         <FieldRow
-          label="Allow public signup"
-          description="When enabled, users can register from the login screen"
+          label={t("settings.general.language")}
+          description={t("settings.general.languageDescription")}
+        >
+          <select
+            className="nv-input w-full max-w-xs"
+            value={form.uiLanguage}
+            onChange={(e) => setForm({ ...form, uiLanguage: e.target.value })}
+          >
+            {SUPPORTED_LOCALES.map((locale) => (
+              <option key={locale.code} value={locale.code}>
+                {locale.label}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
+
+        <FieldRow
+          label={t("settings.general.signup")}
+          description={t("settings.general.signupDesc")}
         >
           <Toggle checked={form.signupEnabled} onChange={(v) => setForm({ ...form, signupEnabled: v })} />
         </FieldRow>
 
-        <FieldRow label="Require email address" description={REQUIRE_EMAIL_DESCRIPTION}>
+        <FieldRow label={t("settings.general.requireEmail")} description={t("settings.general.requireEmailDesc")}>
           <Toggle checked={form.requireEmail} onChange={(v) => setForm({ ...form, requireEmail: v })} />
         </FieldRow>
         {form.requireEmail && !emailEnforce.allowed && (
           <p className="text-xs text-amber-400/90 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-            Email requirement is saved but not enforced until SMTP is configured (Email tab) or a Jellyfin/Seerr
-            app is enabled with an API key (Apps tab).
+            {t("settings.general.emailNotEnforced")}
           </p>
         )}
 
         <FieldRow
-          label="App access grant required"
-          description="Users need Search & Grab permission (Users → edit) before they can use Snatcharr"
+          label={t("settings.general.appGrant")}
+          description={t("settings.general.appGrantDesc")}
         >
           <Toggle checked={form.requireAppGrant} onChange={(v) => setForm({ ...form, requireAppGrant: v })} />
         </FieldRow>
 
         <FieldRow
-          label="Upload NZB grant required"
-          description="When enabled, only admins and users with Manual NZB upload permission can use Upload NZB"
+          label={t("settings.general.uploadGrant")}
+          description={t("settings.general.uploadGrantDesc")}
         >
           <Toggle checked={form.requireUploadGrant} onChange={(v) => setForm({ ...form, requireUploadGrant: v })} />
         </FieldRow>
 
         <FieldRow
-          label="Allow pick download client"
-          description="When enabled, granted users may choose which download client receives their grabs"
+          label={t("settings.general.pickDownloader")}
+          description={t("settings.general.pickDownloaderDesc")}
         >
           <Toggle
             checked={form.allowPickDownloader}
@@ -254,8 +294,8 @@ function GeneralTab({
         </FieldRow>
 
         <FieldRow
-          label="Forgot password URL"
-          description="If a user was imported from external auth, redirect them to this URL for password recovery"
+          label={t("settings.general.forgotPasswordUrl")}
+          description={t("settings.general.forgotPasswordUrlDesc")}
         >
           <input
             className="nv-input w-full max-w-md"
@@ -268,22 +308,22 @@ function GeneralTab({
 
         <div className="border-t border-border pt-4" />
 
-        <FieldRow label="Log Level" description="Minimum level written to live logs and snatcharr.log">
+        <FieldRow label={t("settings.general.logLevel")} description={t("settings.general.logLevelDesc")}>
           <select className="nv-input w-32" value={form.logLevel} onChange={(e) => setForm({ ...form, logLevel: e.target.value as AppSettings["logLevel"] })}>
-            <option value="debug">Debug</option>
-            <option value="info">Info</option>
-            <option value="warn">Warning</option>
-            <option value="error">Error</option>
+            <option value="debug">{t("settings.general.logLevels.debug")}</option>
+            <option value="info">{t("settings.general.logLevels.info")}</option>
+            <option value="warn">{t("settings.general.logLevels.warn")}</option>
+            <option value="error">{t("settings.general.logLevels.error")}</option>
           </select>
         </FieldRow>
 
-        <FieldRow label="Keep completed grabs (days)" description="How long finished downloads stay available before they are auto-deleted (0 = keep forever)">
+        <FieldRow label={t("settings.general.keepGrabs")} description={t("settings.general.keepGrabsDesc")}>
           <input className="nv-input w-32" type="number" min={0} value={form.completedGrabKeepDays} onChange={(e) => setForm({ ...form, completedGrabKeepDays: parseInt(e.target.value) || 0 })} />
         </FieldRow>
 
         <div className="border-t border-border pt-4 space-y-3">
-          <h3 className="text-sm font-semibold">Disclaimer when opening Snatcharr</h3>
-          <FieldRow label="Show disclaimer" description="Same text as the bell icon in the header">
+          <h3 className="text-sm font-semibold">{t("settings.general.disclaimerHeading")}</h3>
+          <FieldRow label={t("settings.general.disclaimerShow")} description={t("settings.general.disclaimerShowDesc")}>
             <select
               className="nv-input w-full max-w-xs"
               value={form.infoPopupMode}
@@ -294,18 +334,32 @@ function GeneralTab({
                 })
               }
             >
-              <option value="once">Once per session</option>
-              <option value="always">Always on open</option>
-              <option value="disabled">Disabled</option>
+              <option value="once">{t("settings.general.disclaimerOnce")}</option>
+              <option value="always">{t("settings.general.disclaimerAlways")}</option>
+              <option value="disabled">{t("settings.general.disclaimerDisabled")}</option>
             </select>
           </FieldRow>
           {form.infoPopupMode !== "disabled" && (
-            <textarea
-              className="nv-input w-full min-h-24 resize-y"
-              placeholder="Disclaimer text"
-              value={form.infoPopupText}
-              onChange={(e) => setForm({ ...form, infoPopupText: e.target.value })}
-            />
+            <>
+              <FieldRow
+                label={t("settings.general.noticeTitle")}
+                description={t("settings.general.noticeTitleDescription")}
+              >
+                <input
+                  className="nv-input w-full max-w-md"
+                  type="text"
+                  value={form.infoPopupTitle}
+                  onChange={(e) => setForm({ ...form, infoPopupTitle: e.target.value })}
+                  placeholder={t("settings.general.noticeTitlePlaceholder")}
+                />
+              </FieldRow>
+              <textarea
+                className="nv-input w-full min-h-24 resize-y"
+                placeholder={t("settings.general.disclaimerTextPlaceholder")}
+                value={form.infoPopupText}
+                onChange={(e) => setForm({ ...form, infoPopupText: e.target.value })}
+              />
+            </>
           )}
         </div>
 
@@ -316,7 +370,9 @@ function GeneralTab({
               logLevel: form.logLevel,
               completedGrabKeepDays: form.completedGrabKeepDays,
               infoPopupMode: form.infoPopupMode,
+              infoPopupTitle: form.infoPopupTitle.trim(),
               infoPopupText: form.infoPopupText,
+              uiLanguage: form.uiLanguage,
               signupEnabled: form.signupEnabled,
               requireEmail: form.requireEmail,
               requireAppGrant: form.requireAppGrant,
@@ -332,6 +388,7 @@ function GeneralTab({
 }
 
 function EmailTab({ settings, onSave, saving }: { settings: Partial<AppSettings>; onSave: (s: Partial<AppSettings>) => void; saving: boolean }) {
+  const t = useT();
   const [form, setForm] = useState({
     hostUrl: settings.hostUrl ?? "http://localhost:3000",
     smtpHost: settings.smtpHost ?? "",
@@ -369,10 +426,10 @@ function EmailTab({ settings, onSave, saving }: { settings: Partial<AppSettings>
         }),
       });
       const data = (await response.json()) as { error?: string; to?: string };
-      if (!response.ok) throw new Error(data.error ?? "SMTP test failed");
-      toast.success(`Test email sent to ${data.to}`);
+      if (!response.ok) throw new Error(data.error ?? t("settings.email.testFailed"));
+      toast.success(t("settings.email.testSent", { to: data.to ?? "" }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "SMTP test failed");
+      toast.error(err instanceof Error ? err.message : t("settings.email.testFailed"));
     } finally {
       setTestingSmtp(false);
     }
@@ -410,44 +467,44 @@ function EmailTab({ settings, onSave, saving }: { settings: Partial<AppSettings>
       <div className="nv-card p-5 space-y-5">
         <h2 className="text-base font-semibold flex items-center gap-2">
           <Mail className="h-4 w-4 text-primary" />
-          SMTP
+          {t("settings.email.smtp")}
         </h2>
         <p className="text-xs text-muted-foreground">
-          Users opt in under Profile → Email Notifications. Empty fields fall back to <code className="font-mono text-[11px]">SMTP_*</code> in <code className="font-mono text-[11px]">.env</code>.
+          <CodeText text={t("settings.email.smtpHint")} codeClassName="font-mono text-[11px]" />
         </p>
 
-        <FieldRow label="SMTP host">
+        <FieldRow label={t("settings.email.smtpHost")}>
           <input className="nv-input w-full max-w-md" value={form.smtpHost} onChange={(e) => setForm({ ...form, smtpHost: e.target.value })} placeholder="smtp.example.com" />
         </FieldRow>
-        <FieldRow label="SMTP port">
+        <FieldRow label={t("settings.email.smtpPort")}>
           <input className="nv-input w-32" type="number" min={1} max={65535} value={form.smtpPort} onChange={(e) => setForm({ ...form, smtpPort: parseInt(e.target.value) || 587 })} />
         </FieldRow>
-        <FieldRow label="SMTP user">
+        <FieldRow label={t("settings.email.smtpUser")}>
           <input className="nv-input w-full max-w-md" value={form.smtpUser} onChange={(e) => setForm({ ...form, smtpUser: e.target.value })} autoComplete="off" />
         </FieldRow>
-        <FieldRow label="SMTP password" description={form.smtpPasswordSet && !form.smtpPassword ? "Saved — leave blank to keep" : undefined}>
+        <FieldRow label={t("settings.email.smtpPassword")} description={form.smtpPasswordSet && !form.smtpPassword ? t("settings.email.smtpPasswordSaved") : undefined}>
           <input className="nv-input w-full max-w-md" type="password" value={form.smtpPassword} onChange={(e) => setForm({ ...form, smtpPassword: e.target.value })} placeholder={form.smtpPasswordSet ? "••••••••" : ""} autoComplete="new-password" />
         </FieldRow>
-        <FieldRow label="From address">
+        <FieldRow label={t("settings.email.fromAddress")}>
           <input className="nv-input w-full max-w-md" type="email" value={form.smtpFrom} onChange={(e) => setForm({ ...form, smtpFrom: e.target.value })} />
         </FieldRow>
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1 flex-1 min-w-[200px]">
-            <label className="text-xs text-muted-foreground">Test recipient (optional)</label>
-            <input className="nv-input w-full" type="email" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} placeholder="Defaults to admin email" />
+            <label className="text-xs text-muted-foreground">{t("settings.email.testRecipient")}</label>
+            <input className="nv-input w-full" type="email" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} placeholder={t("settings.email.testRecipientPlaceholder")} />
           </div>
           <button type="button" onClick={testSmtp} disabled={testingSmtp || !form.smtpHost.trim()} className="flex items-center gap-2 px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-accent disabled:opacity-50 shrink-0">
             {testingSmtp ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-            Send test
+            {t("settings.email.sendTest")}
           </button>
         </div>
       </div>
 
       <div className="nv-card p-5 space-y-4">
-        <h2 className="text-base font-semibold">Grab ready notification</h2>
+        <h2 className="text-base font-semibold">{t("settings.email.grabNotification")}</h2>
         <FieldRow
-          label="Public URL"
-          description="How users reach Snatcharr in the browser — used for verification links, password reset, and $grablink in emails. Must be a working DNS name with https:// and no trailing slash."
+          label={t("settings.email.publicUrl")}
+          description={t("settings.email.publicUrlDesc")}
         >
           <input
             className="nv-input w-full max-w-md font-mono"
@@ -457,7 +514,7 @@ function EmailTab({ settings, onSave, saving }: { settings: Partial<AppSettings>
           />
         </FieldRow>
         <p className="text-xs text-muted-foreground">
-          Markdown supported: <code className="font-mono">**bold**</code>, <code className="font-mono">[text](url)</code>, plain URLs. Click a variable to insert:
+          <CodeText text={t("settings.email.markdownHint")} codeClassName="font-mono" />
         </p>
         <div className="flex flex-wrap gap-2">
           {GRAB_EMAIL_VARIABLES.map((v) => (
@@ -467,12 +524,12 @@ function EmailTab({ settings, onSave, saving }: { settings: Partial<AppSettings>
           ))}
         </div>
 
-        <FieldRow label="Subject">
+        <FieldRow label={t("settings.email.subject")}>
           <input className="nv-input w-full" value={form.grabEmailSubject} onChange={(e) => setForm({ ...form, grabEmailSubject: e.target.value })} />
         </FieldRow>
 
         <div className="space-y-1">
-          <label className="text-xs text-muted-foreground">Message (Markdown)</label>
+          <label className="text-xs text-muted-foreground">{t("settings.email.message")}</label>
           <textarea
             className="nv-input w-full min-h-40 resize-y font-mono text-sm"
             value={form.grabEmailBody}
@@ -481,7 +538,7 @@ function EmailTab({ settings, onSave, saving }: { settings: Partial<AppSettings>
         </div>
 
         <button type="button" onClick={() => setShowPreview(!showPreview)} className="text-xs text-primary hover:underline">
-          {showPreview ? "Hide preview" : "Show preview"}
+          {showPreview ? t("settings.email.hidePreview") : t("settings.email.showPreview")}
         </button>
         {showPreview && (
           <div className="rounded-md border border-border bg-muted/30 p-4 text-sm whitespace-pre-wrap">{previewBody}</div>
@@ -494,13 +551,10 @@ function EmailTab({ settings, onSave, saving }: { settings: Partial<AppSettings>
 }
 
 function SearchSettingsTab({ settings, onSave, saving }: { settings: Partial<AppSettings>; onSave: (s: Partial<AppSettings>) => void; saving: boolean }) {
+  const t = useT();
   const [form, setForm] = useState({
     maxResults: settings.maxResults ?? 100,
     maxSearchRequestsPerUserPerDay: settings.maxSearchRequestsPerUserPerDay ?? 0,
-    maxGrabsPerUserPerDay: settings.maxGrabsPerUserPerDay ?? 0,
-    maxManualNzbPerUserPerDay: settings.maxManualNzbPerUserPerDay ?? 5,
-    maxDownloadsPerUserPerDay: settings.maxDownloadsPerUserPerDay ?? 0,
-    maxConcurrentGrabsPerUser: settings.maxConcurrentGrabsPerUser ?? 2,
     searchRateLimitPerMinute: settings.searchRateLimitPerMinute ?? 30,
     enabledCategories: settings.enabledCategories ?? CATEGORY_GROUPS.map((g) => g.label),
   });
@@ -516,58 +570,80 @@ function SearchSettingsTab({ settings, onSave, saving }: { settings: Partial<App
 
   return (
     <div className="nv-card p-5 space-y-5">
-      <h2 className="text-base font-semibold">Search Settings</h2>
+      <h2 className="text-base font-semibold">{t("settings.search.heading")}</h2>
 
-      <FieldRow label="Results per page" description="How many search results are shown per page">
-        <input className="nv-input w-32" type="number" min={10} max={500} value={form.maxResults} onChange={(e) => setForm({ ...form, maxResults: parseInt(e.target.value) })} />
-      </FieldRow>
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          {t("settings.search.groupResults")}
+        </h3>
+        <FieldRow label={t("settings.search.resultsPerPage")} description={t("settings.search.resultsPerPageDesc")}>
+          <input
+            className="nv-input w-32"
+            type="number"
+            min={10}
+            max={500}
+            value={form.maxResults}
+            onChange={(e) => setForm({ ...form, maxResults: parseInt(e.target.value) })}
+          />
+        </FieldRow>
+      </section>
 
       <div className="border-t border-border pt-4 space-y-3">
-        <h3 className="text-sm font-semibold">Global limits</h3>
-        <p className="text-xs text-muted-foreground">
-          Apply to all users equally. Shown in the header as (global).
-        </p>
-        <FieldRow label="Search requests / day" description="0 = unlimited. Resets daily at 11:00 AM.">
-          <input className="nv-input w-32" type="number" min={0} value={form.maxSearchRequestsPerUserPerDay} onChange={(e) => setForm({ ...form, maxSearchRequestsPerUserPerDay: parseInt(e.target.value) || 0 })} />
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          {t("settings.search.groupLimits")}
+        </h3>
+        <p className="text-xs text-muted-foreground">{t("settings.search.groupLimitsDesc")}</p>
+        <FieldRow label={t("settings.search.searchPerDay")} description={t("settings.search.searchPerDayDesc")}>
+          <input
+            className="nv-input w-32"
+            type="number"
+            min={0}
+            value={form.maxSearchRequestsPerUserPerDay}
+            onChange={(e) =>
+              setForm({ ...form, maxSearchRequestsPerUserPerDay: parseInt(e.target.value) || 0 })
+            }
+          />
         </FieldRow>
-        <FieldRow label="Default grabs / day" description="0 = unlimited. Synced to users without custom limits. Resets at 11:00 AM.">
-          <input className="nv-input w-32" type="number" min={0} value={form.maxGrabsPerUserPerDay} onChange={(e) => setForm({ ...form, maxGrabsPerUserPerDay: parseInt(e.target.value) || 0 })} />
+        <FieldRow label={t("settings.search.searchPerMinute")} description={t("settings.search.searchPerMinuteDesc")}>
+          <input
+            className="nv-input w-32"
+            type="number"
+            min={0}
+            value={form.searchRateLimitPerMinute}
+            onChange={(e) =>
+              setForm({ ...form, searchRateLimitPerMinute: parseInt(e.target.value) || 0 })
+            }
+          />
         </FieldRow>
       </div>
 
       <div className="border-t border-border pt-4 space-y-3">
-        <h3 className="text-sm font-semibold">Personal limits (defaults)</h3>
-        <p className="text-xs text-muted-foreground">
-          Default per-user limits when granting rights in Users. Shown in header as (you).
-        </p>
-        <FieldRow label="Default manual NZB / day" description="For users with upload grant. 0 = unlimited.">
-          <input className="nv-input w-32" type="number" min={0} value={form.maxManualNzbPerUserPerDay} onChange={(e) => setForm({ ...form, maxManualNzbPerUserPerDay: parseInt(e.target.value) || 0 })} />
-        </FieldRow>
-        <FieldRow label="Default downloads / day" description="Finished file downloads per user. 0 = unlimited.">
-          <input className="nv-input w-32" type="number" min={0} value={form.maxDownloadsPerUserPerDay} onChange={(e) => setForm({ ...form, maxDownloadsPerUserPerDay: parseInt(e.target.value) || 0 })} />
-        </FieldRow>
-      </div>
-
-      <div className="border-t border-border pt-4 space-y-3">
-        <h3 className="text-sm font-semibold">Anti-flood</h3>
-        <FieldRow label="Max active grabs per user" description="Queued + downloading + paused at once. 0 = unlimited.">
-          <input className="nv-input w-32" type="number" min={0} value={form.maxConcurrentGrabsPerUser} onChange={(e) => setForm({ ...form, maxConcurrentGrabsPerUser: parseInt(e.target.value) || 0 })} />
-        </FieldRow>
-        <FieldRow label="Search requests / minute (per IP)" description="Short-term flood protection. 0 = default 30.">
-          <input className="nv-input w-32" type="number" min={0} value={form.searchRateLimitPerMinute} onChange={(e) => setForm({ ...form, searchRateLimitPerMinute: parseInt(e.target.value) || 0 })} />
-        </FieldRow>
-      </div>
-
-      <div className="border-t border-border pt-4 space-y-3">
-        <h3 className="text-sm font-semibold">Searchable Categories</h3>
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          {t("settings.search.groupCategories")}
+        </h3>
+        <p className="text-xs text-muted-foreground">{t("settings.search.groupCategoriesDesc")}</p>
         <div className="space-y-2">
           {CATEGORY_GROUPS.map((g) => {
             const on = form.enabledCategories.includes(g.label);
             return (
               <div key={g.label} className="flex items-center justify-between gap-3">
                 <span className="text-sm">{g.label}</span>
-                <button type="button" role="switch" aria-checked={on} onClick={() => toggleCategory(g.label)} className={cn("relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors", on ? "bg-primary" : "bg-muted")}>
-                  <span className={cn("inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform", on ? "translate-x-5" : "translate-x-0.5")} />
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={on}
+                  onClick={() => toggleCategory(g.label)}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
+                    on ? "bg-primary" : "bg-muted",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                      on ? "translate-x-5" : "translate-x-0.5",
+                    )}
+                  />
                 </button>
               </div>
             );
@@ -609,6 +685,7 @@ function GrabExtensionLimitsEditor({
   rows: ExtensionSizeLimit[];
   onChange: (rows: ExtensionSizeLimit[]) => void;
 }) {
+  const t = useT();
   function updateRow(index: number, patch: Partial<ExtensionSizeLimit>) {
     onChange(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
@@ -622,11 +699,11 @@ function GrabExtensionLimitsEditor({
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-border bg-muted/30 text-muted-foreground">
-              <th className="px-2 py-1.5 text-left font-medium w-20">Ext</th>
-              <th className="px-2 py-1.5 text-center font-medium w-24">Min</th>
+              <th className="px-2 py-1.5 text-left font-medium w-20">{t("settings.security.extensionTable.ext")}</th>
+              <th className="px-2 py-1.5 text-center font-medium w-24">{t("settings.security.extensionTable.min")}</th>
               <th className="px-1 py-1.5 text-center font-medium w-4" />
-              <th className="px-2 py-1.5 text-center font-medium w-24">Max</th>
-              <th className="px-2 py-1.5 text-left font-medium w-8">MB</th>
+              <th className="px-2 py-1.5 text-center font-medium w-24">{t("settings.security.extensionTable.max")}</th>
+              <th className="px-2 py-1.5 text-left font-medium w-8">{t("settings.security.extensionTable.unit")}</th>
               <th className="w-8" />
             </tr>
           </thead>
@@ -666,13 +743,13 @@ function GrabExtensionLimitsEditor({
                     }
                   />
                 </td>
-                <td className="px-2 py-1 text-muted-foreground">MB</td>
+                <td className="px-2 py-1 text-muted-foreground">{t("settings.security.extensionTable.unit")}</td>
                 <td className="px-1 py-1 text-center">
                   <button
                     type="button"
                     className="text-muted-foreground hover:text-destructive p-0.5"
                     onClick={() => onChange(rows.filter((_, i) => i !== index))}
-                    aria-label="Remove"
+                    aria-label={t("settings.security.extensionTable.remove")}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -687,7 +764,7 @@ function GrabExtensionLimitsEditor({
         className="text-xs text-primary hover:underline"
         onClick={() => onChange([...rows, { ext: "", minBytes: 0, maxBytes: 0 }])}
       >
-        + Add extension rule
+        {t("settings.security.extensionTable.add")}
       </button>
     </div>
   );
@@ -710,37 +787,44 @@ function AuthMethodSelect({
   hasJfago: boolean;
   includeNone?: boolean;
 }) {
+  const t = useT();
   return (
     <select
       className="nv-input w-full max-w-sm"
       value={value}
       onChange={(e) => onChange(e.target.value as AppSettings["authMethod"] | "none")}
     >
-      {includeNone && <option value="none">None (disabled)</option>}
-      <option value="local">Local (Username / Password)</option>
+      {includeNone && <option value="none">{t("settings.security.authNone")}</option>}
+      <option value="local">{t("setup.authLocal")}</option>
       <option value="jellyfin" disabled={!hasJellyfin}>
-        Jellyfin{hasJellyfin ? "" : " (add Jellyfin app first)"}
+        Jellyfin{hasJellyfin ? "" : t("setup.authAddFirst", { app: "Jellyfin" })}
       </option>
       <option value="seerr-local" disabled={!hasSeerr}>
-        Seerr — local account{hasSeerr ? "" : " (add Seerr app first)"}
+        {t("setup.seerrLocal")}
+        {hasSeerr ? "" : t("setup.authAddFirst", { app: "Seerr" })}
       </option>
       <option value="seerr-jellyfin" disabled={!hasSeerr}>
-        Seerr — via Jellyfin{hasSeerr ? "" : " (add Seerr app first)"}
+        {t("setup.seerrJellyfin")}
+        {hasSeerr ? "" : t("setup.authAddFirst", { app: "Seerr" })}
       </option>
       <option value="organizr" disabled={!hasOrganizr}>
-        Organizr v2 Auth{hasOrganizr ? "" : " (add Organizr app first)"}
+        {t("settings.security.authOrganizr")}
+        {hasOrganizr ? "" : t("setup.authAddFirst", { app: "Organizr" })}
       </option>
       <option value="organizr-sso" disabled={!hasOrganizr}>
-        Organizr as SSO{hasOrganizr ? "" : " (add Organizr app first)"}
+        {t("settings.security.authOrganizrSso")}
+        {hasOrganizr ? "" : t("setup.authAddFirst", { app: "Organizr" })}
       </option>
       <option value="jfago" disabled={!hasJfago}>
-        JFA-GO Auth{hasJfago ? "" : " (add JFA-GO app first)"}
+        {t("settings.security.authJfago")}
+        {hasJfago ? "" : t("setup.authAddFirst", { app: "JFA-GO" })}
       </option>
     </select>
   );
 }
 
 function AuthMethodHelpModal({ onClose }: { onClose: () => void }) {
+  const t = useT();
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
@@ -749,20 +833,20 @@ function AuthMethodHelpModal({ onClose }: { onClose: () => void }) {
       >
         <div className="flex items-center gap-2 p-4 border-b border-border">
           <Info className="h-5 w-5 text-primary shrink-0" />
-          <h3 className="font-semibold text-foreground">Authentication methods</h3>
+          <h3 className="font-semibold text-foreground">{t("settings.security.authMethodsTitle")}</h3>
           <button
             type="button"
             onClick={onClose}
+            aria-label={t("common.close")}
             className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className="p-4 max-h-[70vh] overflow-y-auto">
-          <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{AUTH_METHOD_HELP}</p>
+          <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{t("settings.security.authMethodsHelp")}</p>
           <p className="text-xs text-muted-foreground mt-4 pt-3 border-t border-border">
-            If you want to have Local &amp; external Auth make sure to set local auth as fallback and external auth
-            in main.
+            {t("settings.security.authMethodsFallbackNote")}
           </p>
         </div>
       </div>
@@ -771,6 +855,7 @@ function AuthMethodHelpModal({ onClose }: { onClose: () => void }) {
 }
 
 function SecurityTab({ settings, onSave, saving, apps }: { settings: Partial<AppSettings>; onSave: (s: Partial<AppSettings>) => void; saving: boolean; apps: MaskedExternalApp[] }) {
+  const t = useT();
   const initialAuth = AUTH_METHODS.includes(settings.authMethod as AppSettings["authMethod"])
     ? settings.authMethod === "seerr-jellyfin-fallback"
       ? "seerr-jellyfin"
@@ -783,6 +868,11 @@ function SecurityTab({ settings, onSave, saving, apps }: { settings: Partial<App
     authMethod: initialAuth,
     authFallbackMethod: initialFallback as AppSettings["authFallbackMethod"],
     sessionTimeoutHours: settings.sessionTimeoutHours ?? 24,
+    userDownloadSpeedLimitMbit: settings.userDownloadSpeedLimitMbit ?? 0,
+    maxGrabsPerUserPerDay: settings.maxGrabsPerUserPerDay ?? 0,
+    maxManualNzbPerUserPerDay: settings.maxManualNzbPerUserPerDay ?? 5,
+    maxDownloadsPerUserPerDay: settings.maxDownloadsPerUserPerDay ?? 0,
+    maxConcurrentGrabsPerUser: settings.maxConcurrentGrabsPerUser ?? 2,
     grabFilterExtensionLimitsEnabled: settings.grabFilterExtensionLimitsEnabled ?? true,
     grabFilterExtensionLimits:
       settings.grabFilterExtensionLimits?.length
@@ -800,56 +890,149 @@ function SecurityTab({ settings, onSave, saving, apps }: { settings: Partial<App
 
   return (
     <div className="nv-card p-5 space-y-5">
-      <h2 className="text-base font-semibold">Security Settings</h2>
+      <h2 className="text-base font-semibold">{t("settings.security.heading")}</h2>
 
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex items-center gap-1.5">
-          <label className="text-sm font-medium text-foreground">Authentication Method</label>
-          <button
-            type="button"
-            className="text-muted-foreground hover:text-primary transition-colors"
-            onClick={() => setShowAuthHelp(true)}
-            aria-label="Authentication help"
-          >
-            <Info className="h-4 w-4" />
-          </button>
+      <section className="space-y-4">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          {t("settings.security.groupAuth")}
+        </h3>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex items-center gap-1.5">
+            <label className="text-sm font-medium text-foreground">
+              {t("settings.security.authMethod")}
+            </label>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-primary transition-colors"
+              onClick={() => setShowAuthHelp(true)}
+              aria-label={t("settings.security.authHelp")}
+            >
+              <Info className="h-4 w-4" />
+            </button>
+          </div>
+          <AuthMethodSelect
+            value={form.authMethod}
+            onChange={(authMethod) =>
+              setForm({
+                ...form,
+                authMethod: authMethod === "none" ? "local" : authMethod,
+              })
+            }
+            hasJellyfin={hasJellyfin}
+            hasOrganizr={hasOrganizr}
+            hasSeerr={hasSeerr}
+            hasJfago={hasJfago}
+          />
         </div>
-        <AuthMethodSelect
-          value={form.authMethod}
-          onChange={(authMethod) =>
-            setForm({
-              ...form,
-              authMethod: authMethod === "none" ? "local" : authMethod,
-            })
-          }
-          hasJellyfin={hasJellyfin}
-          hasOrganizr={hasOrganizr}
-          hasSeerr={hasSeerr}
-          hasJfago={hasJfago}
-        />
-      </div>
 
-      <FieldRow label="Fallback Method">
-        <AuthMethodSelect
-          value={form.authFallbackMethod}
-          onChange={(authFallbackMethod) => setForm({ ...form, authFallbackMethod })}
-          hasJellyfin={hasJellyfin}
-          hasOrganizr={hasOrganizr}
-          hasSeerr={hasSeerr}
-          hasJfago={hasJfago}
-          includeNone
-        />
-      </FieldRow>
+        <FieldRow label={t("settings.security.fallbackMethod")}>
+          <AuthMethodSelect
+            value={form.authFallbackMethod}
+            onChange={(authFallbackMethod) => setForm({ ...form, authFallbackMethod })}
+            hasJellyfin={hasJellyfin}
+            hasOrganizr={hasOrganizr}
+            hasSeerr={hasSeerr}
+            hasJfago={hasJfago}
+            includeNone
+          />
+        </FieldRow>
+
+        <FieldRow label={t("settings.security.sessionTimeout")}>
+          <input
+            className="nv-input w-32"
+            type="number"
+            min={1}
+            max={720}
+            value={form.sessionTimeoutHours}
+            onChange={(e) => setForm({ ...form, sessionTimeoutHours: parseInt(e.target.value) })}
+          />
+        </FieldRow>
+      </section>
 
       {showAuthHelp && <AuthMethodHelpModal onClose={() => setShowAuthHelp(false)} />}
 
+      <div className="border-t border-border pt-4 space-y-3">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          {t("settings.security.groupLimits")}
+        </h3>
+        <p className="text-xs text-muted-foreground">{t("settings.security.groupLimitsDesc")}</p>
+        <FieldRow label={t("settings.security.grabsPerDay")} description={t("settings.security.grabsPerDayDesc")}>
+          <input
+            className="nv-input w-32"
+            type="number"
+            min={0}
+            value={form.maxGrabsPerUserPerDay}
+            onChange={(e) => setForm({ ...form, maxGrabsPerUserPerDay: parseInt(e.target.value) || 0 })}
+          />
+        </FieldRow>
+        <FieldRow label={t("settings.security.manualNzbPerDay")} description={t("settings.security.manualNzbPerDayDesc")}>
+          <input
+            className="nv-input w-32"
+            type="number"
+            min={0}
+            value={form.maxManualNzbPerUserPerDay}
+            onChange={(e) =>
+              setForm({ ...form, maxManualNzbPerUserPerDay: parseInt(e.target.value) || 0 })
+            }
+          />
+        </FieldRow>
+        <FieldRow label={t("settings.security.downloadsPerDay")} description={t("settings.security.downloadsPerDayDesc")}>
+          <input
+            className="nv-input w-32"
+            type="number"
+            min={0}
+            value={form.maxDownloadsPerUserPerDay}
+            onChange={(e) =>
+              setForm({ ...form, maxDownloadsPerUserPerDay: parseInt(e.target.value) || 0 })
+            }
+          />
+        </FieldRow>
+        <FieldRow label={t("settings.security.concurrentGrabs")} description={t("settings.security.concurrentGrabsDesc")}>
+          <input
+            className="nv-input w-32"
+            type="number"
+            min={0}
+            value={form.maxConcurrentGrabsPerUser}
+            onChange={(e) =>
+              setForm({ ...form, maxConcurrentGrabsPerUser: parseInt(e.target.value) || 0 })
+            }
+          />
+        </FieldRow>
+        <FieldRow
+          label={t("settings.security.downloadSpeedLimit")}
+          description={t("settings.security.downloadSpeedLimitDescription")}
+        >
+          <div className="relative w-32">
+            <input
+              className="nv-input w-full pr-14"
+              type="number"
+              min={0}
+              step={0.1}
+              value={form.userDownloadSpeedLimitMbit}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  userDownloadSpeedLimitMbit: Math.max(0, parseFloat(e.target.value) || 0),
+                })
+              }
+            />
+            <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-muted-foreground">
+              {t("settings.security.downloadSpeedUnit")}
+            </span>
+          </div>
+        </FieldRow>
+      </div>
+
       <div className="border-t border-border pt-4 space-y-4">
-        <h3 className="text-sm font-semibold">Grab filters (search &amp; manual NZB)</h3>
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          {t("settings.security.groupFilters")}
+        </h3>
+        <p className="text-xs text-muted-foreground">{t("settings.security.groupFiltersDesc")}</p>
 
         <div className="grid md:grid-cols-2 gap-4">
           <div className="space-y-1">
-            <label className="text-sm font-medium">Title blacklist</label>
-            <p className="text-xs text-muted-foreground">One term per line — matched in release title</p>
+            <label className="text-sm font-medium">{t("settings.security.titleBlacklist")}</label>
+            <p className="text-xs text-muted-foreground">{t("settings.security.titleBlacklistDesc")}</p>
             <textarea
               className="nv-input w-full min-h-[88px] font-mono text-xs"
               value={form.grabFilterTitleBlacklist}
@@ -857,8 +1040,8 @@ function SecurityTab({ settings, onSave, saving, apps }: { settings: Partial<App
             />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium">Domain blacklist</label>
-            <p className="text-xs text-muted-foreground">One host per line — manual NZB URLs only</p>
+            <label className="text-sm font-medium">{t("settings.security.domainBlacklist")}</label>
+            <p className="text-xs text-muted-foreground">{t("settings.security.domainBlacklistDesc")}</p>
             <textarea
               className="nv-input w-full min-h-[88px] font-mono text-xs"
               value={form.grabFilterDomainBlacklist}
@@ -870,10 +1053,9 @@ function SecurityTab({ settings, onSave, saving, apps }: { settings: Partial<App
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <label className="text-sm font-medium">Size limits by file extension</label>
+              <label className="text-sm font-medium">{t("settings.security.extensionLimits")}</label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                If the release title contains an extension (e.g. <code className="bg-muted px-1 rounded">.mp4</code>),
-                total size must fall within min–max MB. Empty max = no upper limit.
+                {t("settings.security.extensionLimitsDesc")}
               </p>
             </div>
             <Toggle
@@ -892,10 +1074,6 @@ function SecurityTab({ settings, onSave, saving, apps }: { settings: Partial<App
         </div>
       </div>
 
-      <FieldRow label="Session Timeout (hours)">
-        <input className="nv-input w-32" type="number" min={1} max={720} value={form.sessionTimeoutHours} onChange={(e) => setForm({ ...form, sessionTimeoutHours: parseInt(e.target.value) })} />
-      </FieldRow>
-
       <SaveBar
         saving={saving}
         onSave={() =>
@@ -903,6 +1081,11 @@ function SecurityTab({ settings, onSave, saving, apps }: { settings: Partial<App
             authMethod: form.authMethod,
             authFallbackMethod: form.authFallbackMethod,
             sessionTimeoutHours: form.sessionTimeoutHours,
+            userDownloadSpeedLimitMbit: form.userDownloadSpeedLimitMbit,
+            maxGrabsPerUserPerDay: form.maxGrabsPerUserPerDay,
+            maxManualNzbPerUserPerDay: form.maxManualNzbPerUserPerDay,
+            maxDownloadsPerUserPerDay: form.maxDownloadsPerUserPerDay,
+            maxConcurrentGrabsPerUser: form.maxConcurrentGrabsPerUser,
             grabFilterExtensionLimitsEnabled: form.grabFilterExtensionLimitsEnabled,
             grabFilterExtensionLimits: form.grabFilterExtensionLimits
               .map((r) => ({
@@ -928,6 +1111,7 @@ function SecurityTab({ settings, onSave, saving, apps }: { settings: Partial<App
 
 
 function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRefresh: () => void }) {
+  const t = useT();
   const [showAdd, setShowAdd] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [statusMap, setStatusMap] = useState<Record<string, "ok" | "error">>({});
@@ -988,13 +1172,13 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
   async function testEdit() {
     if (!editForm.apiKey.trim() || !editForm.url) return;
     setTestingEdit(true);
-    const res = await testConnection("prowlarr", editForm.url, editForm.apiKey);
+    const res = await testConnection("prowlarr", editForm.url, editForm.apiKey, t("settings.connection.failedShort"));
     if (res.ok) {
       setEditTestedKey(editConnectionKey);
-      toast.success("Connection OK");
+      toast.success(t("settings.connection.ok"));
     } else {
       setEditTestedKey(null);
-      toast.error(`Connection failed: ${res.error}`);
+      toast.error(t("settings.connection.failed", { error: res.error ?? "" }));
     }
     setTestingEdit(false);
   }
@@ -1002,7 +1186,7 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
   async function saveEdit() {
     if (!editItem) return;
     if (!editApiKeyVerified) {
-      toast.error("Test the new API key before saving");
+      toast.error(t("settings.connection.testNewKey"));
       return;
     }
     setSavingEdit(true);
@@ -1017,11 +1201,11 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
         }),
       });
       if (!r.ok) throw new Error();
-      toast.success("Indexer updated");
+      toast.success(t("settings.indexers.updated"));
       setEditItem(null);
       onRefresh();
     } catch {
-      toast.error("Failed to update indexer");
+      toast.error(t("settings.indexers.updateFailed"));
     } finally {
       setSavingEdit(false);
     }
@@ -1029,13 +1213,13 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
 
   async function testNew() {
     setTestingNew(true);
-    const res = await testConnection(form.type, form.url, form.apiKey);
+    const res = await testConnection(form.type, form.url, form.apiKey, t("settings.connection.failedShort"));
     if (res.ok) {
       setTestedKey(currentKey);
-      toast.success("Connection OK");
+      toast.success(t("settings.connection.ok"));
     } else {
       setTestedKey(null);
-      toast.error(`Connection failed: ${res.error}`);
+      toast.error(t("settings.connection.failed", { error: res.error ?? "" }));
     }
     setTestingNew(false);
   }
@@ -1049,7 +1233,7 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
         body: JSON.stringify(form),
       });
       if (!response.ok) throw new Error();
-      toast.success("Indexer added");
+      toast.success(t("settings.indexers.added"));
       setShowAdd(false);
       setForm({
         name: "Prowlarr",
@@ -1062,7 +1246,7 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
       setTestedKey(null);
       onRefresh();
     } catch {
-      toast.error("Failed to add indexer");
+      toast.error(t("settings.indexers.addFailed"));
     } finally {
       setSaving(false);
     }
@@ -1074,63 +1258,70 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
       const response = await fetch(`/api/indexers/${id}/test`, { method: "POST" });
       const data = await response.json() as { ok: boolean; version?: string; error?: string };
       setStatusMap((m) => ({ ...m, [id]: data.ok ? "ok" : "error" }));
-      if (data.ok) toast.success(`Connection OK${data.version ? ` (v${data.version})` : ""}`);
-      else toast.error(`Connection failed: ${data.error ?? "Unknown error"}`);
+      if (data.ok) {
+        toast.success(
+          data.version
+            ? t("settings.connection.okVersion", { version: data.version })
+            : t("settings.connection.ok"),
+        );
+      } else {
+        toast.error(t("settings.connection.failed", { error: data.error ?? t("settings.connection.unknownError") }));
+      }
     } catch {
       setStatusMap((m) => ({ ...m, [id]: "error" }));
-      toast.error("Test failed");
+      toast.error(t("settings.connection.testFailed"));
     } finally {
       setTesting(null);
     }
   }
 
   async function deleteIndexer(id: string) {
-    if (!confirm("Delete this indexer?")) return;
+    if (!confirm(t("settings.indexers.deleteConfirm"))) return;
     try {
       await fetch(`/api/indexers?id=${id}`, { method: "DELETE" });
-      toast.success("Indexer removed");
+      toast.success(t("settings.indexers.removed"));
       onRefresh();
     } catch {
-      toast.error("Failed to delete indexer");
+      toast.error(t("settings.indexers.deleteFailed"));
     }
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">Indexers (Prowlarr)</h2>
+        <h2 className="text-base font-semibold">{t("settings.indexers.heading")}</h2>
         <button
           onClick={() => setShowAdd(!showAdd)}
           className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" />
-          Add Indexer
+          {t("settings.indexers.add")}
         </button>
       </div>
 
       {showAdd && (
         <div className="nv-card p-4 space-y-3">
-          <h3 className="text-sm font-semibold">New Prowlarr Indexer</h3>
+          <h3 className="text-sm font-semibold">{t("settings.indexers.newTitle")}</h3>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Name</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.connection.name")}</label>
               <input className="nv-input w-full" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Prowlarr" />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Prowlarr URL</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.indexers.urlLabel")}</label>
               <input className="nv-input w-full" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder={defaultServiceUrl("prowlarr")} />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">API Key</label>
-              <input className="nv-input w-full font-mono" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder="API key" />
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.connection.apiKey")}</label>
+              <input className="nv-input w-full font-mono" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={t("settings.connection.apiKeyPlaceholder")} />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Categories (comma-separated IDs)</label>
-              <input className="nv-input w-full" value={form.categories} onChange={(e) => setForm({ ...form, categories: e.target.value })} placeholder="e.g. 2000,5000,4000" />
-              <p className="text-xs text-muted-foreground mt-1">Leave empty to remove the category filter (search all).</p>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.indexers.categories")}</label>
+              <input className="nv-input w-full" value={form.categories} onChange={(e) => setForm({ ...form, categories: e.target.value })} placeholder={t("settings.indexers.categoriesPlaceholderAdd")} />
+              <p className="text-xs text-muted-foreground mt-1">{t("settings.indexers.categoriesHint")}</p>
             </div>
             <div className="col-span-2">
-              <label className="text-xs text-muted-foreground mb-1 block">Prowlarr tags to search</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.indexers.tags")}</label>
               <input
                 className="nv-input w-full"
                 value={form.prowlarrTags}
@@ -1138,7 +1329,7 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
                 placeholder={defaultProwlarrTags}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Comma-separated Prowlarr tag names. Snatcharr only queries indexers with at least one matching tag (default: <code className="text-[11px]">snatcharr-only</code>). Enter <code className="text-[11px]">*</code> to search all enabled indexers.
+                <CodeText text={t("settings.indexers.tagsHint")} codeClassName="text-[11px]" />
               </p>
             </div>
           </div>
@@ -1155,7 +1346,7 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
       )}
 
       {indexers.length === 0 ? (
-        <div className="nv-card p-8 text-center text-muted-foreground text-sm">No indexers configured.</div>
+        <div className="nv-card p-8 text-center text-muted-foreground text-sm">{t("settings.indexers.empty")}</div>
       ) : (
         <div className="nv-card divide-y divide-border overflow-hidden">
           {indexers.map((idx) => (
@@ -1171,9 +1362,9 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
                   disabled={testing === idx.id}
                   className="px-3 py-1 text-xs border border-border rounded hover:bg-accent transition-colors disabled:opacity-50"
                 >
-                  {testing === idx.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                  {testing === idx.id ? <Loader2 className="h-3 w-3 animate-spin" /> : t("common.test")}
                 </button>
-                <button onClick={() => openEdit(idx)} className="p-1 text-muted-foreground hover:text-primary transition-colors" title="Edit">
+                <button onClick={() => openEdit(idx)} className="p-1 text-muted-foreground hover:text-primary transition-colors" title={t("common.edit")}>
                   <Edit2 className="h-4 w-4" />
                 </button>
                 <button onClick={() => deleteIndexer(idx.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors">
@@ -1187,17 +1378,17 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
 
       {editItem && (
         <EditModal
-          title={`Edit ${editItem.name}`}
+          title={t("settings.connection.editTitle", { name: editItem.name })}
           saving={savingEdit}
           saveDisabled={!editApiKeyVerified}
-          saveDisabledReason={!editApiKeyVerified ? "Test the new API key before saving" : undefined}
+          saveDisabledReason={!editApiKeyVerified ? t("settings.connection.testNewKey") : undefined}
           onClose={() => setEditItem(null)}
           onSave={saveEdit}
         >
-          <EditField label="Name">
+          <EditField label={t("settings.connection.name")}>
             <input className="nv-input w-full" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
           </EditField>
-          <EditField label="Prowlarr URL">
+          <EditField label={t("settings.indexers.urlLabel")}>
             <input
               className="nv-input w-full"
               value={editForm.url}
@@ -1209,10 +1400,10 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
             />
           </EditField>
           <EditField
-            label="API Key"
+            label={t("settings.connection.apiKey")}
             hint={
               editForm.apiKeySet
-                ? "A key is saved — field stays empty until you enter a new one"
+                ? t("settings.connection.apiKeySaved")
                 : undefined
             }
           >
@@ -1235,12 +1426,12 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
               onTest={testEdit}
             />
           )}
-          <EditField label="Categories (comma-separated IDs)" hint="Leave empty to remove the category filter (search all).">
-            <input className="nv-input w-full" value={editForm.categories} onChange={(e) => setEditForm({ ...editForm, categories: e.target.value })} placeholder="e.g. 2000,5000" />
+          <EditField label={t("settings.indexers.categories")} hint={t("settings.indexers.categoriesHint")}>
+            <input className="nv-input w-full" value={editForm.categories} onChange={(e) => setEditForm({ ...editForm, categories: e.target.value })} placeholder={t("settings.indexers.categoriesPlaceholderEdit")} />
           </EditField>
           <EditField
-            label="Prowlarr tags to search"
-            hint="Match Prowlarr indexer tags (default: snatcharr-only). Enter * to search all enabled indexers."
+            label={t("settings.indexers.tags")}
+            hint={t("settings.indexers.tagsHintEdit")}
           >
             <input
               className="nv-input w-full"
@@ -1258,7 +1449,9 @@ function IndexersTab({ indexers, onRefresh }: { indexers: MaskedIndexer[]; onRef
 
 
 function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; onRefresh: () => void }) {
+  const t = useT();
   const [showAdd, setShowAdd] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
   const [statusMap, setStatusMap] = useState<Record<string, "ok" | "error">>({});
   const [form, setForm] = useState({
@@ -1312,13 +1505,13 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
   async function testEdit() {
     if (!editForm.apiKey.trim() || !editForm.url) return;
     setTestingEdit(true);
-    const res = await testConnection(editForm.type, editForm.url, editForm.apiKey);
+    const res = await testConnection(editForm.type, editForm.url, editForm.apiKey, t("settings.connection.failedShort"));
     if (res.ok) {
       setEditTestedKey(editConnectionKey);
-      toast.success("Connection OK");
+      toast.success(t("settings.connection.ok"));
     } else {
       setEditTestedKey(null);
-      toast.error(`Connection failed: ${res.error}`);
+      toast.error(t("settings.connection.failed", { error: res.error ?? "" }));
     }
     setTestingEdit(false);
   }
@@ -1326,7 +1519,7 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
   async function saveEdit() {
     if (!editItem) return;
     if (!editApiKeyVerified) {
-      toast.error("Test the new API key before saving");
+      toast.error(t("settings.connection.testNewKey"));
       return;
     }
     setSavingEdit(true);
@@ -1341,11 +1534,11 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
         }),
       });
       if (!r.ok) throw new Error();
-      toast.success("Client updated");
+      toast.success(t("settings.clients.updated"));
       setEditItem(null);
       onRefresh();
     } catch {
-      toast.error("Failed to update client");
+      toast.error(t("settings.clients.updateFailed"));
     } finally {
       setSavingEdit(false);
     }
@@ -1353,13 +1546,13 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
 
   async function testNew() {
     setTestingNew(true);
-    const res = await testConnection(form.type, form.url, form.apiKey);
+    const res = await testConnection(form.type, form.url, form.apiKey, t("settings.connection.failedShort"));
     if (res.ok) {
       setTestedKey(currentKey);
-      toast.success("Connection OK");
+      toast.success(t("settings.connection.ok"));
     } else {
       setTestedKey(null);
-      toast.error(`Connection failed: ${res.error}`);
+      toast.error(t("settings.connection.failed", { error: res.error ?? "" }));
     }
     setTestingNew(false);
   }
@@ -1373,13 +1566,13 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
         body: JSON.stringify(form),
       });
       if (!response.ok) throw new Error();
-      toast.success("Download client added");
+      toast.success(t("settings.clients.added"));
       setShowAdd(false);
       setTestedKey(null);
       setForm((f) => ({ ...f, isDefault: clients.length === 0 }));
       onRefresh();
     } catch {
-      toast.error("Failed to add client");
+      toast.error(t("settings.clients.addFailed"));
     } finally {
       setSaving(false);
     }
@@ -1391,48 +1584,103 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
       const response = await fetch(`/api/download-clients/${id}/test`, { method: "POST" });
       const data = await response.json() as { ok: boolean; version?: string; error?: string };
       setStatusMap((m) => ({ ...m, [id]: data.ok ? "ok" : "error" }));
-      if (data.ok) toast.success(`Connection OK${data.version ? ` (v${data.version})` : ""}`);
-      else toast.error(`Connection failed: ${data.error ?? "Unknown error"}`);
+      if (data.ok) {
+        toast.success(
+          data.version
+            ? t("settings.connection.okVersion", { version: data.version })
+            : t("settings.connection.ok"),
+        );
+      } else {
+        toast.error(t("settings.connection.failed", { error: data.error ?? t("settings.connection.unknownError") }));
+      }
     } catch {
       setStatusMap((m) => ({ ...m, [id]: "error" }));
-      toast.error("Test failed");
+      toast.error(t("settings.connection.testFailed"));
     } finally {
       setTesting(null);
     }
   }
 
   async function deleteClient(id: string) {
-    if (!confirm("Delete this client?")) return;
+    if (!confirm(t("settings.clients.deleteConfirm"))) return;
     try {
       await fetch(`/api/download-clients?id=${id}`, { method: "DELETE" });
-      toast.success("Client removed");
+      toast.success(t("settings.clients.removed"));
       onRefresh();
     } catch {
-      toast.error("Failed to delete");
+      toast.error(t("settings.clients.deleteFailed"));
     }
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">Download Clients</h2>
-        <button
-          onClick={() => {
-            if (!showAdd) setForm((f) => ({ ...f, isDefault: clients.length === 0 }));
-            setShowAdd(!showAdd);
-          }}
-          className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4" /> Add Client
-        </button>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold">{t("settings.clients.heading")}</h2>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowGuide(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm border border-border bg-card hover:bg-accent transition-colors"
+          >
+            <Info className="h-4 w-4" /> {t("settings.clients.guide")}
+          </button>
+          <button
+            onClick={() => {
+              if (!showAdd) setForm((f) => ({ ...f, isDefault: clients.length === 0 }));
+              setShowAdd(!showAdd);
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" /> {t("settings.clients.add")}
+          </button>
+        </div>
       </div>
+
+      {showGuide && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowGuide(false)}
+        >
+          <div
+            className="bg-card border border-border rounded-lg shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 p-4 border-b border-border">
+              <Info className="h-4 w-4 text-primary shrink-0" />
+              <h3 className="text-sm font-semibold">{t("settings.clients.guideTitle")}</h3>
+              <button
+                type="button"
+                onClick={() => setShowGuide(false)}
+                className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+                aria-label={t("common.close")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4">
+              <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
+                {t("setup.clientGuideSabnzbd")}
+              </p>
+            </div>
+            <div className="p-3 border-t border-border flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowGuide(false)}
+                className="px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition-colors"
+              >
+                {t("setup.gotIt")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAdd && (
         <div className="nv-card p-4 space-y-3">
-          <h3 className="text-sm font-semibold">New Download Client</h3>
+          <h3 className="text-sm font-semibold">{t("settings.clients.newTitle")}</h3>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Type</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("setup.type")}</label>
               <select
                 className="nv-input w-full"
                 value={form.type}
@@ -1452,19 +1700,19 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
               </select>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Name</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.connection.name")}</label>
               <input className="nv-input w-full" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">URL</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.connection.url")}</label>
               <input className="nv-input w-full" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder={defaultServiceUrl(form.type)} />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">API Key</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.connection.apiKey")}</label>
               <input className="nv-input w-full font-mono" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Category</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("common.category")}</label>
               <input className="nv-input w-full" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="snatcharr" />
             </div>
           </div>
@@ -1475,8 +1723,8 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
               checked={form.isDefault}
               onChange={(e) => setForm({ ...form, isDefault: e.target.checked })}
             />
-            <span>Default download client</span>
-            <span className="text-xs text-muted-foreground">(one must be default when clients exist)</span>
+            <span>{t("settings.clients.defaultClient")}</span>
+            <span className="text-xs text-muted-foreground">{t("settings.clients.defaultClientHint")}</span>
           </label>
           <AddFormActions
             tested={isTested}
@@ -1491,7 +1739,7 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
       )}
 
       {clients.length === 0 ? (
-        <div className="nv-card p-8 text-center text-muted-foreground text-sm">No download clients configured.</div>
+        <div className="nv-card p-8 text-center text-muted-foreground text-sm">{t("settings.clients.empty")}</div>
       ) : (
         <div className="nv-card divide-y divide-border overflow-hidden">
           {clients.map((c) => (
@@ -1503,7 +1751,7 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
                   <span className="text-xs text-muted-foreground">({c.type})</span>
                   {c.isDefault && (
                     <span className="ml-1.5 text-[10px] uppercase tracking-wide text-primary font-semibold">
-                      Default
+                      {t("settings.clients.defaultBadge")}
                     </span>
                   )}
                 </p>
@@ -1511,9 +1759,9 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => testClient(c.id)} disabled={testing === c.id} className="px-3 py-1 text-xs border border-border rounded hover:bg-accent transition-colors disabled:opacity-50">
-                  {testing === c.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                  {testing === c.id ? <Loader2 className="h-3 w-3 animate-spin" /> : t("common.test")}
                 </button>
-                <button onClick={() => openEdit(c)} className="p-1 text-muted-foreground hover:text-primary transition-colors" title="Edit">
+                <button onClick={() => openEdit(c)} className="p-1 text-muted-foreground hover:text-primary transition-colors" title={t("common.edit")}>
                   <Edit2 className="h-4 w-4" />
                 </button>
                 <button onClick={() => deleteClient(c.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors">
@@ -1527,14 +1775,14 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
 
       {editItem && (
         <EditModal
-          title={`Edit ${editItem.name}`}
+          title={t("settings.connection.editTitle", { name: editItem.name })}
           saving={savingEdit}
           saveDisabled={!editApiKeyVerified}
-          saveDisabledReason={!editApiKeyVerified ? "Test the new API key before saving" : undefined}
+          saveDisabledReason={!editApiKeyVerified ? t("settings.connection.testNewKey") : undefined}
           onClose={() => setEditItem(null)}
           onSave={saveEdit}
         >
-          <EditField label="Type">
+          <EditField label={t("setup.type")}>
             <select
               className="nv-input w-full"
               value={editForm.type}
@@ -1547,10 +1795,10 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
               <option value="nzbget">NZBGet</option>
             </select>
           </EditField>
-          <EditField label="Name">
+          <EditField label={t("settings.connection.name")}>
             <input className="nv-input w-full" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
           </EditField>
-          <EditField label="URL">
+          <EditField label={t("settings.connection.url")}>
             <input
               className="nv-input w-full"
               value={editForm.url}
@@ -1562,10 +1810,10 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
             />
           </EditField>
           <EditField
-            label="API Key"
+            label={t("settings.connection.apiKey")}
             hint={
               editForm.apiKeySet
-                ? "A key is saved — field stays empty until you enter a new one"
+                ? t("settings.connection.apiKeySaved")
                 : undefined
             }
           >
@@ -1588,7 +1836,7 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
               onTest={testEdit}
             />
           )}
-          <EditField label="Category" hint="The SABnzbd category every grab is filed under.">
+          <EditField label={t("common.category")} hint={t("settings.clients.categoryHint")}>
             <input className="nv-input w-full" value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} />
           </EditField>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -1598,7 +1846,7 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
               checked={editForm.isDefault}
               onChange={(e) => setEditForm({ ...editForm, isDefault: e.target.checked })}
             />
-            <span>Default download client</span>
+            <span>{t("settings.clients.defaultClient")}</span>
           </label>
           <EnabledRow checked={editForm.enabled} onChange={() => setEditForm({ ...editForm, enabled: !editForm.enabled })} />
         </EditModal>
@@ -1609,6 +1857,7 @@ function ClientsTab({ clients, onRefresh }: { clients: MaskedDownloadClient[]; o
 
 
 function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: () => void }) {
+  const t = useT();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({
     name: "Jellyfin",
@@ -1657,13 +1906,13 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
   async function testEdit() {
     if (!editForm.apiKey.trim() || !editForm.url) return;
     setTestingEdit(true);
-    const res = await testConnection(editForm.type, editForm.url, editForm.apiKey);
+    const res = await testConnection(editForm.type, editForm.url, editForm.apiKey, t("settings.connection.failedShort"));
     if (res.ok) {
       setEditTestedKey(editConnectionKey);
-      toast.success("Connection OK");
+      toast.success(t("settings.connection.ok"));
     } else {
       setEditTestedKey(null);
-      toast.error(`Connection failed: ${res.error}`);
+      toast.error(t("settings.connection.failed", { error: res.error ?? "" }));
     }
     setTestingEdit(false);
   }
@@ -1671,7 +1920,7 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
   async function saveEdit() {
     if (!editItem) return;
     if (!editApiKeyVerified) {
-      toast.error("Test the new API key before saving");
+      toast.error(t("settings.connection.testNewKey"));
       return;
     }
     setSavingEdit(true);
@@ -1688,11 +1937,11 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
         }),
       });
       if (!r.ok) throw new Error();
-      toast.success("App updated");
+      toast.success(t("settings.apps.updated"));
       setEditItem(null);
       onRefresh();
     } catch {
-      toast.error("Failed to update app");
+      toast.error(t("settings.apps.updateFailed"));
     } finally {
       setSavingEdit(false);
     }
@@ -1711,13 +1960,13 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
 
   async function testNew() {
     setTestingNew(true);
-    const res = await testConnection(form.type, form.url, form.apiKey);
+    const res = await testConnection(form.type, form.url, form.apiKey, t("settings.connection.failedShort"));
     if (res.ok) {
       setTestedKey(currentKey);
-      toast.success("Connection OK");
+      toast.success(t("settings.connection.ok"));
     } else {
       setTestedKey(null);
-      toast.error(`Connection failed: ${res.error}`);
+      toast.error(t("settings.connection.failed", { error: res.error ?? "" }));
     }
     setTestingNew(false);
   }
@@ -1728,11 +1977,18 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
       const response = await fetch(`/api/apps/${id}/test`, { method: "POST" });
       const data = await response.json() as { ok: boolean; version?: string; error?: string };
       setStatusMap((m) => ({ ...m, [id]: data.ok ? "ok" : "error" }));
-      if (data.ok) toast.success(`Connection OK${data.version ? ` (v${data.version})` : ""}`);
-      else toast.error(`Connection failed: ${data.error ?? "Unknown error"}`);
+      if (data.ok) {
+        toast.success(
+          data.version
+            ? t("settings.connection.okVersion", { version: data.version })
+            : t("settings.connection.ok"),
+        );
+      } else {
+        toast.error(t("settings.connection.failed", { error: data.error ?? t("settings.connection.unknownError") }));
+      }
     } catch {
       setStatusMap((m) => ({ ...m, [id]: "error" }));
-      toast.error("Test failed");
+      toast.error(t("settings.connection.testFailed"));
     } finally {
       setTesting(null);
     }
@@ -1747,34 +2003,34 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
         body: JSON.stringify(form),
       });
       if (!response.ok) throw new Error();
-      toast.success("App added");
+      toast.success(t("settings.apps.added"));
       setShowAdd(false);
       setTestedKey(null);
       onRefresh();
     } catch {
-      toast.error("Failed to add app");
+      toast.error(t("settings.apps.addFailed"));
     } finally {
       setSaving(false);
     }
   }
 
   async function deleteApp(id: string) {
-    if (!confirm("Remove this app?")) return;
+    if (!confirm(t("settings.apps.removeConfirm"))) return;
     try {
       await fetch(`/api/apps?id=${id}`, { method: "DELETE" });
-      toast.success("App removed");
+      toast.success(t("settings.apps.removed"));
       onRefresh();
     } catch {
-      toast.error("Failed to remove");
+      toast.error(t("settings.apps.removeFailed"));
     }
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">Additional Apps</h2>
+        <h2 className="text-base font-semibold">{t("settings.apps.heading")}</h2>
         <button onClick={() => setShowAdd(!showAdd)} className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90">
-          <Plus className="h-4 w-4" /> Add App
+          <Plus className="h-4 w-4" /> {t("settings.apps.add")}
         </button>
       </div>
 
@@ -1782,7 +2038,7 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
         <div className="nv-card p-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Type</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("setup.type")}</label>
               <select className="nv-input w-full" value={form.type} onChange={(e) => selectType(e.target.value as AdditionalAppType)}>
                 {Object.entries(ADDITIONAL_APP_TYPES).map(([value, meta]) => (
                   <option key={value} value={value}>{meta.label}</option>
@@ -1790,15 +2046,15 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
               </select>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Name</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.connection.name")}</label>
               <input className="nv-input w-full" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">URL</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.connection.url")}</label>
               <input className="nv-input w-full" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder={ADDITIONAL_APP_TYPES[form.type].defaultUrl} />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">API Key</label>
+              <label className="text-xs text-muted-foreground mb-1 block">{t("settings.connection.apiKey")}</label>
               <input
                 className="nv-input w-full font-mono"
                 type="password"
@@ -1811,14 +2067,16 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
 
           {/* Feature list for the selected app type */}
           <div className="rounded-md bg-muted/40 p-3 space-y-2">
-            <p className="text-xs font-semibold text-foreground">{ADDITIONAL_APP_TYPES[form.type].label} features</p>
+            <p className="text-xs font-semibold text-foreground">
+              {t("settings.apps.featuresTitle", { app: ADDITIONAL_APP_TYPES[form.type].label })}
+            </p>
             <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
-              {ADDITIONAL_APP_TYPES[form.type].features.map((f) => (
-                <li key={f}>{f}</li>
+              {ADDITIONAL_APP_TYPES[form.type].features.map((f, index) => (
+                <li key={f}>{t(`setup.appFeatures.${form.type}.${index}`)}</li>
               ))}
             </ul>
             <p className="text-xs text-primary font-medium pt-1 border-t border-border/60">
-              {ADDITIONAL_APP_LOGIN_NOTE}
+              {t("setup.appLoginNote")}
             </p>
           </div>
 
@@ -1835,7 +2093,7 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
       )}
 
       {apps.length === 0 ? (
-        <div className="nv-card p-8 text-center text-muted-foreground text-sm">No additional apps configured.</div>
+        <div className="nv-card p-8 text-center text-muted-foreground text-sm">{t("settings.apps.empty")}</div>
       ) : (
         <div className="nv-card divide-y divide-border overflow-hidden">
           {apps.map((app) => (
@@ -1851,9 +2109,9 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
                   disabled={testing === app.id}
                   className="px-3 py-1 text-xs border border-border rounded hover:bg-accent transition-colors disabled:opacity-50"
                 >
-                  {testing === app.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                  {testing === app.id ? <Loader2 className="h-3 w-3 animate-spin" /> : t("common.test")}
                 </button>
-                <button onClick={() => openEdit(app)} className="p-1 text-muted-foreground hover:text-primary transition-colors" title="Edit">
+                <button onClick={() => openEdit(app)} className="p-1 text-muted-foreground hover:text-primary transition-colors" title={t("common.edit")}>
                   <Edit2 className="h-4 w-4" />
                 </button>
                 <button onClick={() => deleteApp(app.id)} className="p-1 text-muted-foreground hover:text-destructive transition-colors">
@@ -1867,14 +2125,14 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
 
       {editItem && (
         <EditModal
-          title={`Edit ${editItem.name}`}
+          title={t("settings.connection.editTitle", { name: editItem.name })}
           saving={savingEdit}
           saveDisabled={!editApiKeyVerified}
-          saveDisabledReason={!editApiKeyVerified ? "Test the new API key before saving" : undefined}
+          saveDisabledReason={!editApiKeyVerified ? t("settings.connection.testNewKey") : undefined}
           onClose={() => setEditItem(null)}
           onSave={saveEdit}
         >
-          <EditField label="Type">
+          <EditField label={t("setup.type")}>
             <select
               className="nv-input w-full"
               value={editForm.type}
@@ -1893,10 +2151,10 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
               ))}
             </select>
           </EditField>
-          <EditField label="Name">
+          <EditField label={t("settings.connection.name")}>
             <input className="nv-input w-full" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
           </EditField>
-          <EditField label="URL">
+          <EditField label={t("settings.connection.url")}>
             <input
               className="nv-input w-full"
               value={editForm.url}
@@ -1908,10 +2166,10 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
             />
           </EditField>
           <EditField
-            label="API Key"
+            label={t("settings.connection.apiKey")}
             hint={
               editForm.apiKeySet
-                ? "A key is saved — field stays empty until you enter a new one"
+                ? t("settings.connection.apiKeySaved")
                 : undefined
             }
           >
@@ -1943,6 +2201,7 @@ function AppsTab({ apps, onRefresh }: { apps: MaskedExternalApp[]; onRefresh: ()
 
 
 function SaveBar({ saving, onSave }: { saving: boolean; onSave: () => void }) {
+  const t = useT();
   return (
     <div className="flex justify-end pt-2">
       <button
@@ -1951,7 +2210,7 @@ function SaveBar({ saving, onSave }: { saving: boolean; onSave: () => void }) {
         className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
       >
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-        Save
+        {saving ? t("common.saving") : t("common.save")}
       </button>
     </div>
   );
@@ -1974,37 +2233,38 @@ function AddFormActions({
   onCancel: () => void;
   onSave: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex items-center justify-between gap-2">
       <span className="flex items-center gap-1.5 text-xs">
         {tested ? (
           <>
             <CheckCircle2 className="h-4 w-4 text-green-400" />
-            <span className="text-green-400">Connection verified</span>
+            <span className="text-green-400">{t("settings.connection.verified")}</span>
           </>
         ) : (
           <>
             <XCircle className="h-4 w-4 text-muted-foreground" />
-            <span className="text-muted-foreground">Test the connection before saving</span>
+            <span className="text-muted-foreground">{t("settings.connection.testBeforeSaving")}</span>
           </>
         )}
       </span>
       <div className="flex gap-2">
-        <button onClick={onCancel} className="px-4 py-1.5 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+        <button onClick={onCancel} className="px-4 py-1.5 text-sm text-muted-foreground hover:text-foreground">{t("common.cancel")}</button>
         <button
           onClick={onTest}
           disabled={!canTest || testing}
           className="flex items-center gap-2 px-4 py-1.5 border border-border rounded-md text-sm hover:bg-accent disabled:opacity-50"
         >
-          {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : null} Test
+          {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : null} {t("common.test")}
         </button>
         <button
           onClick={onSave}
           disabled={!tested || saving}
-          title={!tested ? "Run a successful connection test first" : undefined}
+          title={!tested ? t("settings.connection.runTestFirst") : undefined}
           className="flex items-center gap-2 px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50"
         >
-          {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Save
+          {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} {t("common.save")}
         </button>
       </div>
     </div>
@@ -2022,18 +2282,19 @@ function EditConnectionBar({
   canTest: boolean;
   onTest: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
       <span className="flex items-center gap-1.5 text-xs">
         {verified ? (
           <>
             <CheckCircle2 className="h-4 w-4 text-green-400" />
-            <span className="text-green-400">New API key verified</span>
+            <span className="text-green-400">{t("settings.connection.newKeyVerified")}</span>
           </>
         ) : (
           <>
             <XCircle className="h-4 w-4 text-muted-foreground" />
-            <span className="text-muted-foreground">Test the new API key before saving</span>
+            <span className="text-muted-foreground">{t("settings.connection.testNewKey")}</span>
           </>
         )}
       </span>
@@ -2044,7 +2305,7 @@ function EditConnectionBar({
         className="flex items-center gap-2 px-3 py-1 border border-border rounded-md text-xs hover:bg-accent disabled:opacity-50"
       >
         {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-        Test
+        {t("common.test")}
       </button>
     </div>
   );
@@ -2067,6 +2328,7 @@ function EditModal({
   onSave: () => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="nv-card w-full max-w-md p-5 space-y-4 animate-slide-in" onClick={(e) => e.stopPropagation()}>
@@ -2081,7 +2343,7 @@ function EditModal({
         </div>
         {children}
         <div className="flex gap-2 justify-end pt-1">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">{t("common.cancel")}</button>
           <button
             onClick={onSave}
             disabled={saving || saveDisabled}
@@ -2089,7 +2351,7 @@ function EditModal({
             className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save
+            {t("common.save")}
           </button>
         </div>
       </div>
@@ -2108,9 +2370,10 @@ function EditField({ label, hint, children }: { label: string; hint?: string; ch
 }
 
 function EnabledRow({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  const t = useT();
   return (
     <div className="flex items-center justify-between border-t border-border pt-3">
-      <p className="text-sm font-medium">Enabled</p>
+      <p className="text-sm font-medium">{t("settings.connection.enabled")}</p>
       <button
         type="button"
         onClick={onChange}

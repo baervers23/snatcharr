@@ -6,6 +6,7 @@ import { cn, formatBytes, formatSpeed } from "@/lib/utils";
 import { toast } from "sonner";
 import type { Grab } from "@/lib/db/schema";
 import { formatDistanceToNow } from "date-fns";
+import { useT } from "@/lib/i18n/client";
 
 interface GrabFileEntry {
   index: number;
@@ -28,17 +29,8 @@ const STATUS_ICONS = {
   expired: <AlertCircle className="h-4 w-4 text-muted-foreground" />,
 };
 
-const STATUS_LABELS = {
-  queued: "Queued",
-  downloading: "Downloading",
-  processing: "Processing",
-  paused: "Paused",
-  failed: "Failed",
-  completed: "Completed",
-  expired: "Expired",
-};
-
 export default function GrabsView({ isAdmin = false, userId }: { isAdmin?: boolean; userId: string }) {
+  const t = useT();
   const [grabList, setGrabList] = useState<GrabWithUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,12 +43,12 @@ export default function GrabsView({ isAdmin = false, userId }: { isAdmin?: boole
       const data = (await response.json()) as { grabs?: GrabWithUser[] };
       setGrabList(data.grabs ?? []);
     } catch {
-      if (!silent) toast.error("Failed to load grabs");
+      if (!silent) toast.error(t("grabs.loadFailed"));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchGrabs();
@@ -79,14 +71,14 @@ export default function GrabsView({ isAdmin = false, userId }: { isAdmin?: boole
   async function deleteGrab(grab: GrabWithUser) {
     const canDelete = isAdmin || grab.userId === userId;
     if (!canDelete) return;
-    if (!confirm(`Delete grab "${grab.title}"?`)) return;
+    if (!confirm(t("grabs.deleteConfirm", { title: grab.title }))) return;
     try {
       const response = await fetch(`/api/grabs/${grab.id}`, { method: "DELETE" });
       if (!response.ok) throw new Error();
       setGrabList((prev) => prev.filter((g) => g.id !== grab.id));
-      toast.success("Grab deleted");
+      toast.success(t("grabs.deleted"));
     } catch {
-      toast.error("Failed to delete grab");
+      toast.error(t("grabs.deleteFailed"));
     }
   }
 
@@ -102,7 +94,7 @@ export default function GrabsView({ isAdmin = false, userId }: { isAdmin?: boole
         prev.map((g) => (g.id === grab.id ? { ...g, isPublic: !g.isPublic } : g)),
       );
     } catch {
-      toast.error("Failed to update visibility");
+      toast.error(t("grabs.visibilityFailed"));
     }
   }
 
@@ -124,35 +116,35 @@ export default function GrabsView({ isAdmin = false, userId }: { isAdmin?: boole
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Grabs & Downloads</h1>
+        <h1 className="text-xl font-semibold">{t("grabs.title")}</h1>
         <button
           onClick={() => fetchGrabs(true)}
           disabled={refreshing}
           className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground nv-card hover:bg-accent/30 transition-colors"
         >
           <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-          Refresh
+          {t("common.refresh")}
         </button>
       </div>
 
       {grabList.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Download className="h-16 w-16 text-muted-foreground/20 mb-4" />
-          <p className="text-muted-foreground">No grabs yet</p>
+          <p className="text-muted-foreground">{t("grabs.empty")}</p>
           <p className="text-sm text-muted-foreground/60 mt-1">
-            Search for content and click &quot;Grab&quot; to start downloading
+            {t("grabs.emptyHint")}
           </p>
         </div>
       ) : (
         <div className="space-y-6">
           {active.length > 0 && (
-            <GrabSection title="Active" icon={<Download className="h-4 w-4 text-primary" />} items={active} onToggleVisibility={toggleVisibility} onDelete={deleteGrab} isAdmin={isAdmin} userId={userId} />
+            <GrabSection title={t("grabs.active")} icon={<Download className="h-4 w-4 text-primary" />} items={active} onToggleVisibility={toggleVisibility} onDelete={deleteGrab} isAdmin={isAdmin} userId={userId} />
           )}
           {completed.length > 0 && (
-            <GrabSection title="Completed" icon={<CheckCircle2 className="h-4 w-4 text-green-400" />} items={completed} onToggleVisibility={toggleVisibility} onDelete={deleteGrab} isAdmin={isAdmin} userId={userId} />
+            <GrabSection title={t("grabs.completed")} icon={<CheckCircle2 className="h-4 w-4 text-green-400" />} items={completed} onToggleVisibility={toggleVisibility} onDelete={deleteGrab} isAdmin={isAdmin} userId={userId} />
           )}
           {failed.length > 0 && (
-            <GrabSection title="Failed / Expired" icon={<XCircle className="h-4 w-4 text-red-400" />} items={failed} onToggleVisibility={toggleVisibility} onDelete={deleteGrab} isAdmin={isAdmin} userId={userId} />
+            <GrabSection title={t("grabs.failedExpired")} icon={<XCircle className="h-4 w-4 text-red-400" />} items={failed} onToggleVisibility={toggleVisibility} onDelete={deleteGrab} isAdmin={isAdmin} userId={userId} />
           )}
         </div>
       )}
@@ -204,8 +196,10 @@ function GrabRow({
   onDelete: (g: GrabWithUser) => void;
   canDelete: boolean;
 }) {
+  const t = useT();
   const status = grab.status ?? "queued";
   const progress = (grab.progress ?? 0) * 100;
+  const statusLabel = t(`grabs.status.${status}`);
 
   const [showKey, setShowKey] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
@@ -222,11 +216,11 @@ function GrabRow({
       try {
         const res = await fetch(`/api/grabs/${grab.id}/files`, { cache: "no-store" });
         const data = (await res.json()) as { files?: GrabFileEntry[]; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Failed to load files");
+        if (!res.ok) throw new Error(data.error ?? t("grabs.loadFilesFailed"));
         setFiles(data.files ?? []);
         if (data.error) setFilesError(data.error);
       } catch (err) {
-        setFilesError(err instanceof Error ? err.message : "Failed to load files");
+        setFilesError(err instanceof Error ? err.message : t("grabs.loadFilesFailed"));
         setFiles([]);
       } finally {
         setLoadingFiles(false);
@@ -245,7 +239,7 @@ function GrabRow({
               <span className="truncate">{grab.title}</span>
               {grab.source === "manual" && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
-                  Manual
+                  {t("grabs.manual")}
                 </span>
               )}
             </p>
@@ -255,24 +249,24 @@ function GrabRow({
                   <button
                     onClick={() => setShowKey((v) => !v)}
                     className="p-1 rounded text-yellow-400/80 hover:text-yellow-400 hover:bg-yellow-400/10 transition-colors"
-                    title="Show NZB password"
+                    title={t("grabs.showNzbPassword")}
                   >
                     <Key className="h-3.5 w-3.5" />
                   </button>
                   {showKey && (
                     <div className="absolute right-0 top-full mt-1 z-30 bg-popover border border-border rounded-md shadow-lg p-2 min-w-44">
-                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">NZB Password</p>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">{t("grabs.nzbPassword")}</p>
                       <code className="block text-xs font-mono text-foreground break-all select-all bg-muted px-2 py-1 rounded">
                         {grab.nzbPassword}
                       </code>
                       <button
                         onClick={() => {
                           navigator.clipboard?.writeText(grab.nzbPassword ?? "");
-                          toast.success("Password copied");
+                          toast.success(t("grabs.passwordCopied"));
                         }}
                         className="mt-1.5 text-xs text-primary hover:underline"
                       >
-                        Copy
+                        {t("grabs.copy")}
                       </button>
                     </div>
                   )}
@@ -282,7 +276,7 @@ function GrabRow({
                 <button
                   onClick={() => onDelete(grab)}
                   className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                  title="Delete grab"
+                  title={t("common.delete")}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -299,7 +293,7 @@ function GrabRow({
                   status === "paused" && "bg-yellow-500/15 text-yellow-400",
                 )}
               >
-                {STATUS_LABELS[status as keyof typeof STATUS_LABELS]}
+                {statusLabel}
               </span>
             </div>
           </div>
@@ -310,8 +304,8 @@ function GrabRow({
             {grab.category && (
               <span className="bg-muted px-1.5 py-0.5 rounded">{grab.category}</span>
             )}
-            {grab.user?.username && <span>by {grab.user.username}</span>}
-            <span>{formatDistanceToNow(new Date(grab.queuedAt ?? Date.now()))} ago</span>
+            {grab.user?.username && <span>{t("grabs.byUser", { username: grab.user.username })}</span>}
+            <span>{t("grabs.timeAgo", { time: formatDistanceToNow(new Date(grab.queuedAt ?? Date.now())) })}</span>
           </div>
 
           {grab.downloadClientMessage && (
@@ -348,7 +342,7 @@ function GrabRow({
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
                   {status === "processing"
-                    ? "Moving files to download folder…"
+                    ? t("grabs.movingFiles")
                     : `${progress.toFixed(1)}%`}
                 </span>
                 {status === "downloading" && grab.speed && grab.speed > 0 && (
@@ -372,28 +366,30 @@ function GrabRow({
                   className="flex items-center gap-1.5 text-xs text-foreground hover:text-primary transition-colors"
                 >
                   <FolderOpen className="h-3 w-3" />
-                  {showFiles ? "Hide files" : "Browse files"}
+                  {showFiles ? t("grabs.hideFiles") : t("grabs.browseFiles")}
                 </button>
                 <a
                   href={`/api/download?id=${grab.id}`}
                   className="flex items-center gap-1.5 text-xs text-primary hover:underline"
                 >
                   <Archive className="h-3 w-3" />
-                  Zip all &amp; download
+                  {t("grabs.zipAll")}
                 </a>
                 {grab.expiresAt && (
                   <span className="text-xs text-muted-foreground">
-                    Expires {formatDistanceToNow(new Date(grab.expiresAt), { addSuffix: true })}
+                    {t("grabs.expires", {
+                      time: formatDistanceToNow(new Date(grab.expiresAt), { addSuffix: true }),
+                    })}
                   </span>
                 )}
 
                 <button
                   onClick={() => onToggleVisibility(grab)}
                   className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors ml-auto"
-                  title={grab.isPublic ? "Hide from other users" : "Make visible to other users"}
+                  title={grab.isPublic ? t("grabs.hideFromOthers") : t("grabs.makeVisible")}
                 >
                   {grab.isPublic ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-                  {grab.isPublic ? "Public" : "Hidden"}
+                  {grab.isPublic ? t("grabs.public") : t("grabs.hidden")}
                 </button>
               </div>
 
@@ -401,7 +397,7 @@ function GrabRow({
                 <div className="rounded-md border border-border bg-background/50 divide-y divide-border">
                   {loadingFiles ? (
                     <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-                      <Loader2 className="h-3 w-3 animate-spin" /> Loading files…
+                      <Loader2 className="h-3 w-3 animate-spin" /> {t("grabs.loadingFiles")}
                     </div>
                   ) : filesError ? (
                     <div className="p-3 text-xs text-yellow-400">{filesError}</div>
@@ -418,7 +414,7 @@ function GrabRow({
                       </a>
                     ))
                   ) : (
-                    <div className="p-3 text-xs text-muted-foreground">No files found.</div>
+                    <div className="p-3 text-xs text-muted-foreground">{t("grabs.noFiles")}</div>
                   )}
                 </div>
               )}

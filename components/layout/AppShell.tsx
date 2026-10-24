@@ -26,23 +26,24 @@ import {
 import { APP_VERSION } from "@/lib/app-version";
 import { formatTimeUntilReset } from "@/lib/daily-limits";
 import { popupDismissStorageKey } from "@/lib/popup-storage";
+import { useT } from "@/lib/i18n/client";
 import { cn, formatBytes } from "@/lib/utils";
 import InfoPopup from "./InfoPopup";
 interface NavItem {
   href: string;
-  label: string;
+  labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
   requiresUpload?: boolean;
 }
 const NAV_ITEMS: NavItem[] = [
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/upload", label: "Upload NZB", icon: Upload, requiresUpload: true },
-  { href: "/grabs", label: "Grabs", icon: Download },
-  { href: "/stats", label: "Stats", icon: BarChart2 },
-  { href: "/users", label: "Users", icon: Users, adminOnly: true },
-  { href: "/settings", label: "Settings", icon: Settings, adminOnly: true },
-  { href: "/system", label: "System", icon: Monitor, adminOnly: true },
+  { href: "/search", labelKey: "nav.search", icon: Search },
+  { href: "/upload", labelKey: "nav.uploadNzb", icon: Upload, requiresUpload: true },
+  { href: "/grabs", labelKey: "nav.grabs", icon: Download },
+  { href: "/stats", labelKey: "nav.stats", icon: BarChart2 },
+  { href: "/users", labelKey: "nav.users", icon: Users, adminOnly: true },
+  { href: "/settings", labelKey: "nav.settings", icon: Settings, adminOnly: true },
+  { href: "/system", labelKey: "nav.system", icon: Monitor, adminOnly: true },
 ];
 interface DiskInfo {
   path: string;
@@ -88,6 +89,7 @@ interface AppShellProps {
   canUploadNzb?: boolean;
   instanceName: string;
   infoPopup: string | null;
+  infoPopupTitle?: string;
   infoPopupMode?: "once" | "always" | "disabled";
   children: React.ReactNode;
 }
@@ -96,9 +98,11 @@ export default function AppShell({
   canUploadNzb = false,
   instanceName,
   infoPopup,
+  infoPopupTitle = "",
   infoPopupMode = "disabled",
   children,
 }: AppShellProps) {
+  const t = useT();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -140,8 +144,8 @@ export default function AppShell({
     return (
       <Link href={item.href} className={cn("nav-item", active && "active")} onClick={() => setSidebarOpen(false)}>
         <Icon className="h-4 w-4 shrink-0" />
-        <span className="flex-1">{item.label}</span>
-        {showHealthDot && <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Health issues detected" />}
+        <span className="flex-1">{t(item.labelKey)}</span>
+        {showHealthDot && <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title={t("system.healthIssues")} />}
         {item.href === "/grabs" && isBusy && <Loader2 className="h-3 w-3 animate-spin text-primary shrink-0" />}
       </Link>
     );
@@ -155,7 +159,13 @@ export default function AppShell({
         <div className="h-2 bg-muted rounded-full overflow-hidden">
           <div className={cn("h-full rounded-full", usedPct > 90 ? "bg-red-500" : usedPct > 75 ? "bg-amber-500" : "bg-primary")} style={{ width: `${usedPct}%` }} />
         </div>
-        <p className="text-xs text-muted-foreground">{formatBytes(disk.free)} free of {formatBytes(disk.total)} ({usedPct}% used)</p>
+        <p className="text-xs text-muted-foreground">
+          {t("system.diskFreeOf", {
+            free: formatBytes(disk.free),
+            total: formatBytes(disk.total),
+            pct: usedPct,
+          })}
+        </p>
       </div>
     );
   }
@@ -175,7 +185,7 @@ export default function AppShell({
           <div className="px-3 pb-2">
             <button onClick={() => setShowDiskModal(true)} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors">
               <HardDrive className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{formatBytes(status.appDisk.free)} free</span>
+              <span className="truncate">{t("shell.diskFree", { size: formatBytes(status.appDisk.free) })}</span>
             </button>
           </div>
         )}
@@ -196,13 +206,13 @@ export default function AppShell({
               <span className="block font-medium text-foreground truncate">Snatcharr</span>
               <span className="block text-[10px] opacity-80 truncate">
                 {status?.update?.updateAvailable
-                  ? `v${status.update.latestVersion} available`
+                  ? t("shell.versionAvailable", { version: status.update.latestVersion ?? "" })
                   : "github.com/baervers23"}
               </span>
             </span>
             {status?.update?.updateAvailable ? (
               <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/25 text-amber-300 animate-pulse">
-                Update
+                {t("shell.update")}
               </span>
             ) : (
               <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/20 text-primary">
@@ -219,14 +229,14 @@ export default function AppShell({
               </div>
               <div className="flex-1 text-left overflow-hidden">
                 <p className="text-sm font-medium text-foreground truncate">{user.username}</p>
-                <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
+                <p className="text-xs text-muted-foreground">{user.role === "admin" ? t("users.roleAdmin") : t("users.roleUser")}</p>
               </div>
               <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform shrink-0", profileOpen && "rotate-180")} />
             </button>
             {profileOpen && (
               <div className="absolute bottom-full left-0 right-0 mb-1 bg-popover border border-border rounded-md shadow-lg py-1 z-50">
-                <Link href="/profile" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors"><User className="h-4 w-4" />My Profile</Link>
-                <button onClick={() => signOut({ callbackUrl: "/login" })} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-destructive"><LogOut className="h-4 w-4" />Sign Out</button>
+                <Link href="/profile" onClick={() => setProfileOpen(false)} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors"><User className="h-4 w-4" />{t("nav.myProfile")}</Link>
+                <button onClick={() => signOut({ callbackUrl: "/login" })} className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-destructive"><LogOut className="h-4 w-4" />{t("nav.signOut")}</button>
               </div>
             )}
           </div>
@@ -236,88 +246,91 @@ export default function AppShell({
         {status?.hasHealthIssues && (
           <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center gap-2 text-sm text-amber-200">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
-            <span>Health issues detected — {status.healthIssues} service{status.healthIssues !== 1 ? "s" : ""} may be down or misconfigured.</span>
+            <span>{t("shell.healthBanner", { count: status.healthIssues })}</span>
           </div>
         )}
         {isBusy && (
           <div className="bg-primary/10 border-b border-primary/20 px-4 py-1.5 flex items-center gap-2 text-xs text-primary">
             <Loader2 className="h-3 w-3 animate-spin" />
-            <span>{status?.activeDownloads ?? 0} download{(status?.activeDownloads ?? 0) !== 1 ? "s" : ""} in progress</span>
+            <span>{t("shell.downloadsInProgress", { count: status?.activeDownloads ?? 0 })}</span>
           </div>
         )}
         <header className="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center gap-3 px-4 sticky top-0 z-20">
           <button className="lg:hidden text-muted-foreground hover:text-foreground" onClick={() => setSidebarOpen(true)}><Menu className="h-5 w-5" /></button>
           <h2 className="text-sm font-medium text-foreground hidden sm:block">
-            {NAV_ITEMS.find((i) => pathname === i.href || pathname.startsWith(i.href + "/"))?.label ?? "Snatcharr"}
+            {(() => {
+              const item = NAV_ITEMS.find((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
+              return item ? t(item.labelKey) : "Snatcharr";
+            })()}
           </h2>
           <div className="flex-1" />
           {status?.dailyLimits && (
             <div className="hidden md:flex items-center gap-3 text-xs text-muted-foreground mr-2">
-              <span title="Global search limit (resets 11:00 AM)">
-                Search{" "}
+              <span title={t("shell.tooltipSearch")}>
+                {t("shell.limitSearch")}{" "}
                 <span className="text-foreground font-medium">
                   {status.dailyLimits.searchMax > 0
                     ? `${status.dailyLimits.searchUsed}/${status.dailyLimits.searchMax}`
                     : `${status.dailyLimits.searchUsed} (∞)`}
                 </span>
-                <span className="text-[10px] ml-0.5 opacity-70">(global)</span>
+                <span className="text-[10px] ml-0.5 opacity-70">{t("shell.scopeGlobal")}</span>
               </span>
               <span className="text-border">|</span>
-              <span title="Global default grab limit (resets 11:00 AM)">
-                Grabs{" "}
+              <span title={t("shell.tooltipGrabsGlobal")}>
+                {t("shell.limitGrabs")}{" "}
                 <span className="text-foreground font-medium">
                   {status.dailyLimits.globalGrabMax > 0
                     ? `${status.dailyLimits.grabUsed}/${status.dailyLimits.globalGrabMax}`
                     : `${status.dailyLimits.grabUsed} (∞)`}
                 </span>
-                <span className="text-[10px] ml-0.5 opacity-70">(global)</span>
+                <span className="text-[10px] ml-0.5 opacity-70">{t("shell.scopeGlobal")}</span>
               </span>
               {status.dailyLimits.grabMax > 0 &&
                 status.dailyLimits.grabMax !== status.dailyLimits.globalGrabMax && (
                   <>
                     <span className="text-border">|</span>
-                    <span title="Your personal grab limit (resets 11:00 AM)">
-                      Grabs{" "}
+                    <span title={t("shell.tooltipGrabsPersonal")}>
+                      {t("shell.limitGrabs")}{" "}
                       <span className="text-foreground font-medium">
                         {`${status.dailyLimits.personalGrabUsed}/${status.dailyLimits.grabMax}`}
                       </span>
-                      <span className="text-[10px] ml-0.5 opacity-70">(you)</span>
+                      <span className="text-[10px] ml-0.5 opacity-70">{t("shell.scopeYou")}</span>
                     </span>
                   </>
                 )}
               <span className="text-border">|</span>
-              <span title="Your personal file download limit (resets 11:00 AM)">
-                Downloads{" "}
+              <span title={t("shell.tooltipDownloads")}>
+                {t("shell.limitDownloads")}{" "}
                 <span className="text-foreground font-medium">
                   {status.dailyLimits.downloadMax > 0
                     ? `${status.dailyLimits.downloadUsed}/${status.dailyLimits.downloadMax}`
                     : `${status.dailyLimits.downloadUsed} (∞)`}
                 </span>
-                <span className="text-[10px] ml-0.5 opacity-70">(you)</span>
+                <span className="text-[10px] ml-0.5 opacity-70">{t("shell.scopeYou")}</span>
               </span>
               {canUploadNzb && (status.dailyLimits.manualNzbMax ?? 0) > 0 && (
                 <>
                   <span className="text-border">|</span>
-                  <span title="Your personal manual NZB limit (resets 11:00 AM)">
-                    NZB{" "}
+                  <span title={t("shell.tooltipNzb")}>
+                    {t("shell.limitNzb")}{" "}
                     <span className="text-foreground font-medium">
                       {status.dailyLimits.manualNzbUsed ?? 0}/{status.dailyLimits.manualNzbMax}
                     </span>
-                    <span className="text-[10px] ml-0.5 opacity-70">(you)</span>
+                    <span className="text-[10px] ml-0.5 opacity-70">{t("shell.scopeYou")}</span>
                   </span>
                 </>
               )}
               <span className="text-border">|</span>
-              <span title={`Resets daily at ${status.dailyLimits.resetAtHour}:00`}>
-                Reset in {formatTimeUntilReset(status.dailyLimits.resetInMs)}
+              <span title={t("shell.tooltipReset", { hour: status.dailyLimits.resetAtHour })}>
+                {t("shell.resetIn", { time: formatTimeUntilReset(status.dailyLimits.resetInMs) })}
               </span>
             </div>
           )}
           <div className="flex items-center gap-2">
             {infoPopup && (
-              <button onClick={() => setShowInfoPopup(true)} className="p-2 text-muted-foreground hover:text-foreground transition-colors" title="Info"><Bell className="h-4 w-4" /></button>
+              <button onClick={() => setShowInfoPopup(true)} className="p-2 text-muted-foreground hover:text-foreground transition-colors" title={t("shell.info")}><Bell className="h-4 w-4" /></button>
             )}
-            <Link href="/profile" className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center hover:bg-primary/30 transition-colors" title="My Profile">
+            <Link href="/profile" className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center hover:bg-primary/30 transition-colors" title={t("nav.myProfile")}>
               <span className="text-xs font-semibold text-primary uppercase">{user.username.charAt(0)}</span>
             </Link>
           </div>
@@ -327,6 +340,7 @@ export default function AppShell({
       {showInfoPopup && infoPopup && (
         <InfoPopup
           text={infoPopup}
+          title={infoPopupTitle}
           onClose={() => {
             setShowInfoPopup(false);
             if (infoPopupMode === "once") {
@@ -339,12 +353,12 @@ export default function AppShell({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowDiskModal(false)}>
           <div className="nv-card w-full max-w-md p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold flex items-center gap-2"><HardDrive className="h-4 w-4 text-primary" />Disk Space</h2>
+              <h2 className="text-base font-semibold flex items-center gap-2"><HardDrive className="h-4 w-4 text-primary" />{t("system.diskSpace")}</h2>
               <button onClick={() => setShowDiskModal(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </div>
-            <DiskCard disk={status.appDisk} title="App directory" />
+            <DiskCard disk={status.appDisk} title={t("system.appDirectory")} />
             {status.downloadDisk && !status.sameDisk && (
-              <DiskCard disk={status.downloadDisk} title="Download Dir" />
+              <DiskCard disk={status.downloadDisk} title={t("system.downloadDir")} />
             )}
           </div>
         </div>

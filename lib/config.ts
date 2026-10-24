@@ -57,6 +57,8 @@ export type AppConfig = {
   usersNeedGrabGrant?: boolean;
   maxSearchRequestsPerUserPerDay?: number;
   maxGrabsPerUserPerDay?: number;
+  uiLanguage?: string;
+  userDownloadSpeedLimitMbit?: number;
 
   warningOnOpen: "once" | "always" | "disabled";
   importantPopupText: string;
@@ -76,6 +78,8 @@ const DEFAULT_CONFIG: AppConfig = {
   requireAppGrant: false,
   maxSearchRequestsPerUserPerDay: 0,
   maxGrabsPerUserPerDay: 0,
+  uiLanguage: "en",
+  userDownloadSpeedLimitMbit: 0,
   warningOnOpen: "disabled",
   importantPopupText: "",
   indexers: [],

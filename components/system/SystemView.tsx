@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Monitor, Cpu, HardDrive, MemoryStick, Clock, Server, Activity, CheckCircle2, XCircle, AlertTriangle, RefreshCw, ListTodo, ScrollText, ClipboardList, ArrowDownToLine } from "lucide-react";
+import { Monitor, Cpu, HardDrive, MemoryStick, Clock, Server, Activity, CheckCircle2, XCircle, AlertTriangle, RefreshCw, ListTodo, ScrollText, ClipboardList, ArrowDownToLine, Bug } from "lucide-react";
 import type { AppUpdateStatus } from "@/lib/app-update";
 import { cn, formatBytes } from "@/lib/utils";
 import { parseActionLine, DOMAIN_COLORS, OUTCOME_COLORS } from "@/lib/action-log-format";
@@ -9,9 +9,11 @@ import type { Indexer, DownloadClient, ExternalApp } from "@/lib/db/schema";
 import type { AppSettings } from "@/lib/db/settings-shared";
 import TasksView from "@/components/tasks/TasksView";
 import BackupRestoreSection from "@/components/system/BackupRestoreSection";
+import DebugView from "@/components/system/DebugView";
 import { useSearchParams } from "next/navigation";
+import { useLocale, useT } from "@/lib/i18n/client";
 
-type SystemTab = "overview" | "tasks" | "logs" | "audit";
+type SystemTab = "overview" | "tasks" | "logs" | "audit" | "debug";
 
 interface SystemInfo {
   version: string;
@@ -57,23 +59,31 @@ interface Props {
   externalApps: ExternalApp[];
   settings: Partial<AppSettings>;
   canDownloadBackup: boolean;
+  debugEnabled?: boolean;
 }
 
-const SYSTEM_TABS: Array<{ id: SystemTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: "overview", label: "Overview", icon: Monitor },
-  { id: "tasks", label: "Tasks", icon: ListTodo },
-  { id: "logs", label: "Logs", icon: ScrollText },
-  { id: "audit", label: "Audit", icon: ClipboardList },
+const SYSTEM_TABS: Array<{ id: SystemTab; labelKey: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { id: "overview", labelKey: "system.tabs.overview", icon: Monitor },
+  { id: "tasks", labelKey: "system.tabs.tasks", icon: ListTodo },
+  { id: "logs", labelKey: "system.tabs.logs", icon: ScrollText },
+  { id: "audit", labelKey: "system.tabs.audit", icon: ClipboardList },
+  { id: "debug", labelKey: "system.tabs.debug", icon: Bug },
 ];
 
-function tabFromParam(param: string | null): SystemTab {
+function tabFromParam(param: string | null, debugEnabled: boolean): SystemTab {
   if (param === "tasks" || param === "logs" || param === "audit") return param;
+  if (param === "debug" && debugEnabled) return "debug";
   return "overview";
 }
 
-export default function SystemView({ systemInfo, updateStatus, dataDisk, downloadDisk, sameDisk, indexers, downloadClients, externalApps, settings, canDownloadBackup }: Props) {
+export default function SystemView({ systemInfo, updateStatus, dataDisk, downloadDisk, sameDisk, indexers, downloadClients, externalApps, settings, canDownloadBackup, debugEnabled = false }: Props) {
+  const t = useT();
+  const locale = useLocale();
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<SystemTab>(() => tabFromParam(searchParams.get("tab")));
+  const [activeTab, setActiveTab] = useState<SystemTab>(() =>
+    tabFromParam(searchParams.get("tab"), debugEnabled),
+  );
+  const visibleTabs = SYSTEM_TABS.filter((tab) => tab.id !== "debug" || debugEnabled);
   const [checks, setChecks] = useState<HealthCheck[]>([
     ...indexers.map((i) => ({
       id: i.id,
@@ -130,11 +140,11 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
         }),
       );
     } catch {
-      setChecks((prev) => prev.map((c) => ({ ...c, status: "error" as const, message: "Health check failed" })));
+      setChecks((prev) => prev.map((c) => ({ ...c, status: "error" as const, message: t("system.healthFailed") })));
     } finally {
       setRunningChecks(false);
     }
-  }, []);
+  }, [t]);
 
   async function fetchLogs(page = logPage) {
     setLoadingLogs(true);
@@ -208,11 +218,11 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
     <div className={cn("space-y-6 mx-auto", activeTab === "logs" ? "max-w-6xl" : "max-w-5xl")}>
       <h1 className="text-xl font-semibold flex items-center gap-2">
         <Monitor className="h-5 w-5 text-primary" />
-        System
+        {t("system.title")}
       </h1>
 
       <nav className="flex flex-wrap gap-1 border-b border-border pb-1">
-        {SYSTEM_TABS.map((tab) => {
+        {visibleTabs.map((tab) => {
           const Icon = tab.icon;
           return (
             <button
@@ -227,11 +237,13 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
               )}
             >
               <Icon className="h-4 w-4" />
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           );
         })}
       </nav>
+
+      {activeTab === "debug" && debugEnabled && <DebugView />}
 
       {activeTab === "tasks" && <TasksView settings={settings} embedded />}
 
@@ -243,10 +255,10 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
             <ArrowDownToLine className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">
-                Update available — v{updateStatus.latestVersion}
+                {t("system.updateAvailable", { version: updateStatus.latestVersion ?? "" })}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                You are on v{updateStatus.currentVersion}. Pull the new image or download the latest release.
+                {t("system.updateHint", { current: updateStatus.currentVersion })}
               </p>
             </div>
           </div>
@@ -256,7 +268,7 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
             rel="noopener noreferrer"
             className="shrink-0 inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 border border-amber-500/30 transition-colors"
           >
-            View release
+            {t("system.viewRelease")}
           </a>
         </div>
       )}
@@ -267,26 +279,26 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
           icon={Server}
           label="Snatcharr"
           value={`v${systemInfo.version}`}
-          sub={`Node.js ${systemInfo.nodeVersion}`}
+          sub={t("system.nodeVersion", { version: systemInfo.nodeVersion })}
         />
-        <InfoCard icon={Clock} label="Uptime" value={systemInfo.uptime} sub={systemInfo.platform} />
-        <InfoCard icon={MemoryStick} label="Memory" value={`${systemInfo.memoryMB} MB`} sub="RSS" />
-        <InfoCard icon={Cpu} label="CPU Cores" value={String(systemInfo.cpuCores)} />
+        <InfoCard icon={Clock} label={t("system.uptime")} value={systemInfo.uptime} sub={systemInfo.platform} />
+        <InfoCard icon={MemoryStick} label={t("system.memory")} value={`${systemInfo.memoryMB} MB`} sub={t("system.rss")} />
+        <InfoCard icon={Cpu} label={t("system.cpuCores")} value={String(systemInfo.cpuCores)} />
         {dataDisk && (
           <InfoCard
             icon={HardDrive}
-            label={sameDisk ? "Storage" : "Data disk"}
+            label={sameDisk ? t("system.storage") : t("system.dataDisk")}
             value={formatBytes(dataDisk.free)}
-            sub={`${formatBytes(dataDisk.total)} total · ${dataDisk.path}`}
+            sub={t("system.totalPath", { total: formatBytes(dataDisk.total), path: dataDisk.path })}
             className="col-span-2 sm:col-span-1"
           />
         )}
         {downloadDisk && !sameDisk && (
           <InfoCard
             icon={HardDrive}
-            label="Downloads disk"
+            label={t("system.downloadsDisk")}
             value={formatBytes(downloadDisk.free)}
-            sub={`${formatBytes(downloadDisk.total)} total · ${downloadDisk.path}`}
+            sub={t("system.totalPath", { total: formatBytes(downloadDisk.total), path: downloadDisk.path })}
             className="col-span-2 sm:col-span-1"
           />
         )}
@@ -297,13 +309,13 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
             <Activity className="h-4 w-4" />
-            Health Checks
+            {t("system.healthChecks")}
             <HealthBadge status={overallHealth} />
           </h2>
           <div className="flex items-center gap-3">
             {latestCheck && (
               <span className="text-xs text-muted-foreground">
-                Last checked {new Date(latestCheck).toLocaleString()}
+                {t("system.lastChecked", { time: new Date(latestCheck).toLocaleString(locale) })}
               </span>
             )}
             <button
@@ -312,14 +324,14 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
               className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border rounded-md hover:bg-accent transition-colors disabled:opacity-50"
             >
               <RefreshCw className={cn("h-3 w-3", runningChecks && "animate-spin")} />
-              Run Checks
+              {t("system.runChecks")}
             </button>
           </div>
         </div>
 
         {checks.length === 0 ? (
           <div className="nv-card p-6 text-center text-muted-foreground text-sm">
-            No services configured. Add indexers and download clients in Settings.
+            {t("system.noServices")}
           </div>
         ) : (
           <div className="nv-card divide-y divide-border overflow-hidden">
@@ -338,11 +350,11 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
                   )}
                   {check.lastCheckedAt && (
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Checked {new Date(check.lastCheckedAt).toLocaleString()}
+                      {t("system.checked", { time: new Date(check.lastCheckedAt).toLocaleString(locale) })}
                     </p>
                   )}
                 </div>
-                <span className="text-xs text-muted-foreground capitalize">{check.type}</span>
+                <span className="text-xs text-muted-foreground capitalize">{t(`system.checkTypes.${check.type}`)}</span>
               </div>
             ))}
           </div>
@@ -356,16 +368,16 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
       {activeTab === "logs" && (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Live Logs</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{t("system.liveLogs")}</h2>
           <button onClick={() => void fetchLogs(logPage)} disabled={loadingLogs} className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border rounded-md hover:bg-accent transition-colors disabled:opacity-50">
             <RefreshCw className={cn("h-3 w-3", loadingLogs && "animate-spin")} />
-            Refresh
+            {t("common.refresh")}
           </button>
         </div>
 
         <div className="nv-card bg-black/50 font-mono text-sm p-4 min-h-[32rem] h-[calc(100vh-14rem)] overflow-y-auto space-y-0.5">
           {logs.length === 0 ? (
-            <p className="text-muted-foreground">No events yet. Logs are written to snatcharr.log in the data directory.</p>
+            <p className="text-muted-foreground">{t("system.noLogs")}</p>
           ) : (
             logs.map((log, i) => {
               const parsed = parseActionLine(log.msg);
@@ -405,9 +417,9 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
           )}
         </div>
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <button onClick={() => setLogPage((p) => Math.max(1, p - 1))} disabled={logPage <= 1} className="px-2 py-1 border border-border rounded disabled:opacity-40">Previous</button>
-          <span>Page {logPage}</span>
-          <button onClick={() => setLogPage((p) => p + 1)} disabled={!logHasMore} className="px-2 py-1 border border-border rounded disabled:opacity-40">Next</button>
+          <button onClick={() => setLogPage((p) => Math.max(1, p - 1))} disabled={logPage <= 1} className="px-2 py-1 border border-border rounded disabled:opacity-40">{t("common.previous")}</button>
+          <span>{t("common.page", { n: logPage })}</span>
+          <button onClick={() => setLogPage((p) => p + 1)} disabled={!logHasMore} className="px-2 py-1 border border-border rounded disabled:opacity-40">{t("common.next")}</button>
         </div>
       </div>
       )}
@@ -415,33 +427,33 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
       {activeTab === "audit" && (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Audit Log</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{t("system.auditLog")}</h2>
           <button onClick={() => void fetchAudit(auditPage)} disabled={loadingAudit} className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border rounded-md hover:bg-accent transition-colors disabled:opacity-50">
             <RefreshCw className={cn("h-3 w-3", loadingAudit && "animate-spin")} />
-            Refresh
+            {t("common.refresh")}
           </button>
         </div>
 
         <div className="nv-card overflow-hidden">
           {audit.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">No audit events recorded yet.</p>
+            <p className="p-4 text-sm text-muted-foreground">{t("system.noAudit")}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="nv-table">
                 <thead>
                   <tr>
-                    <th>When</th>
-                    <th>User</th>
-                    <th>Action</th>
-                    <th className="hidden md:table-cell">Details</th>
-                    <th className="hidden lg:table-cell">IP</th>
+                    <th>{t("system.auditWhen")}</th>
+                    <th>{t("system.auditUser")}</th>
+                    <th>{t("system.auditAction")}</th>
+                    <th className="hidden md:table-cell">{t("system.auditDetails")}</th>
+                    <th className="hidden lg:table-cell">{t("system.auditIp")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {audit.map((e) => (
                     <tr key={e.id}>
                       <td className="text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(e.createdAt).toLocaleString()}
+                        {new Date(e.createdAt).toLocaleString(locale)}
                       </td>
                       <td className="text-sm font-medium whitespace-nowrap">{e.username}</td>
                       <td>
@@ -457,9 +469,9 @@ export default function SystemView({ systemInfo, updateStatus, dataDisk, downloa
           )}
         </div>
         <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-          <button onClick={() => setAuditPage((p) => Math.max(1, p - 1))} disabled={auditPage <= 1} className="px-2 py-1 border border-border rounded disabled:opacity-40">Previous</button>
-          <span>Page {auditPage}</span>
-          <button onClick={() => setAuditPage((p) => p + 1)} disabled={!auditHasMore} className="px-2 py-1 border border-border rounded disabled:opacity-40">Next</button>
+          <button onClick={() => setAuditPage((p) => Math.max(1, p - 1))} disabled={auditPage <= 1} className="px-2 py-1 border border-border rounded disabled:opacity-40">{t("common.previous")}</button>
+          <span>{t("common.page", { n: auditPage })}</span>
+          <button onClick={() => setAuditPage((p) => p + 1)} disabled={!auditHasMore} className="px-2 py-1 border border-border rounded disabled:opacity-40">{t("common.next")}</button>
         </div>
       </div>
       )}
@@ -501,6 +513,7 @@ function HealthIcon({ status }: { status: HealthCheck["status"] }) {
 }
 
 function HealthBadge({ status }: { status: string }) {
+  const t = useT();
   return (
     <span className={cn(
       "text-xs font-medium px-2 py-0.5 rounded-full normal-case tracking-normal",
@@ -509,7 +522,7 @@ function HealthBadge({ status }: { status: string }) {
       status === "warning" && "bg-yellow-500/15 text-yellow-400",
       status === "unknown" && "bg-muted text-muted-foreground",
     )}>
-      {status === "ok" ? "All Healthy" : status === "error" ? "Issues Detected" : status === "warning" ? "Warnings" : "Unknown"}
+      {status === "ok" ? t("system.allHealthy") : status === "error" ? t("system.issuesDetected") : status === "warning" ? t("system.warnings") : t("system.unknown")}
     </span>
   );
 }

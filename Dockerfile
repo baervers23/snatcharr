@@ -14,7 +14,7 @@ RUN npm run build
 
 FROM node:22-alpine AS runner
 
-ARG APP_VERSION=0.9.3
+ARG APP_VERSION=0.9.4
 
 WORKDIR /app
 

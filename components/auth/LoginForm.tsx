@@ -4,6 +4,8 @@ import { signIn } from "next-auth/react";
 import { toast } from "sonner";
 import { Loader2, LogIn } from "lucide-react";
 import Link from "next/link";
+import { useT } from "@/lib/i18n/client";
+
 interface LoginFormProps {
   callbackUrl?: string;
   error?: string;
@@ -11,6 +13,7 @@ interface LoginFormProps {
   authMethod?: string | null;
   verified?: boolean;
 }
+
 function getOrganizrTokenCookie(): string | null {
   if (typeof document === "undefined") return null;
   for (const part of document.cookie.split(";")) {
@@ -21,11 +24,7 @@ function getOrganizrTokenCookie(): string | null {
   }
   return null;
 }
-const ERROR_MESSAGES: Record<string, string> = {
-  CredentialsSignin: "Invalid username or password",
-  SessionRequired: "You must be signed in to access this page",
-  Default: "An error occurred. Please try again.",
-};
+
 export default function LoginForm({
   callbackUrl,
   error,
@@ -33,6 +32,7 @@ export default function LoginForm({
   authMethod,
   verified,
 }: LoginFormProps) {
+  const t = useT();
   const [loading, setLoading] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -40,13 +40,21 @@ export default function LoginForm({
   const [organizrCookie] = useState(() =>
     authMethod === "organizr-sso" ? getOrganizrTokenCookie() : null,
   );
-  const errorMessage = error ? (ERROR_MESSAGES[error] ?? ERROR_MESSAGES.Default) : null;
+
+  const errorMessages: Record<string, string> = {
+    CredentialsSignin: t("auth.invalidCredentials"),
+    SessionRequired: t("auth.sessionRequired"),
+    Default: t("auth.genericError"),
+  };
+  const errorMessage = error ? (errorMessages[error] ?? errorMessages.Default) : null;
   const isOrganizrSso = authMethod === "organizr-sso";
+
   useEffect(() => {
     if (verified) {
-      toast.success("Email verified — you can sign in now");
+      toast.success(t("auth.emailVerified"));
     }
-  }, [verified]);
+  }, [verified, t]);
+
   useEffect(() => {
     if (!isOrganizrSso || ssoChecked) return;
     const cookie = getOrganizrTokenCookie();
@@ -62,19 +70,24 @@ export default function LoginForm({
     })
       .then((result) => {
         if (result?.error) {
-          toast.error(ERROR_MESSAGES[result.error] ?? ERROR_MESSAGES.Default);
+          toast.error(
+            result.error === "CredentialsSignin"
+              ? t("auth.invalidCredentials")
+              : t("auth.genericError"),
+          );
           return;
         }
         window.location.href = callbackUrl ?? "/search";
       })
       .catch(() => {
-        toast.error("Organizr SSO login failed");
+        toast.error(t("auth.organizrSsoFailed"));
       })
       .finally(() => {
         setLoading(false);
         setSsoChecked(true);
       });
-  }, [isOrganizrSso, ssoChecked, callbackUrl]);
+  }, [isOrganizrSso, ssoChecked, callbackUrl, t]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -85,23 +98,24 @@ export default function LoginForm({
         redirect: false,
       });
       if (result?.error) {
-        toast.error(ERROR_MESSAGES[result.error] ?? ERROR_MESSAGES.Default);
+        toast.error(errorMessages[result.error] ?? errorMessages.Default);
         return;
       }
       window.location.href = callbackUrl ?? "/search";
     } catch {
-      toast.error("Login failed. Please try again.");
+      toast.error(t("auth.loginFailed"));
     } finally {
       setLoading(false);
     }
   }
+
   if (isOrganizrSso) {
     return (
       <div className="nv-card p-6 text-center space-y-3">
         {loading ? (
           <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Checking Organizr session…
+            {t("auth.organizrChecking")}
           </div>
         ) : (
           <>
@@ -111,25 +125,22 @@ export default function LoginForm({
               </div>
             )}
             <p className="text-sm text-muted-foreground">
-              {organizrCookie
-                ? "No valid Organizr session found."
-                : "Log in to Organizr first (same browser), then open Snatcharr again."}
+              {organizrCookie ? t("auth.organizrNoSession") : t("auth.organizrLoginFirst")}
             </p>
             {!organizrCookie && (
-              <p className="text-xs text-muted-foreground">
-                SSO requires the Organizr cookie on a shared parent domain or reverse-proxy setup.
-              </p>
+              <p className="text-xs text-muted-foreground">{t("auth.organizrSsoHint")}</p>
             )}
           </>
         )}
       </div>
     );
   }
+
   return (
     <div className="nv-card p-6">
       {authModeLabel && (
         <p className="text-xs text-muted-foreground mb-4 text-center">
-          Authentication via {authModeLabel}
+          {t("auth.authVia", { provider: authModeLabel })}
         </p>
       )}
       {errorMessage && (
@@ -139,26 +150,26 @@ export default function LoginForm({
       )}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <label className="nv-label">Username</label>
+          <label className="nv-label">{t("auth.username")}</label>
           <input
             className="nv-input w-full"
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="Enter your username"
+            placeholder={t("auth.usernamePlaceholder")}
             required
             autoFocus
             autoComplete="username"
           />
         </div>
         <div className="space-y-2">
-          <label className="nv-label">Password</label>
+          <label className="nv-label">{t("auth.password")}</label>
           <input
             className="nv-input w-full"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Enter your password"
+            placeholder={t("auth.passwordPlaceholder")}
             required
             autoComplete="current-password"
           />
@@ -168,7 +179,7 @@ export default function LoginForm({
               tabIndex={-1}
               className="text-primary hover:underline"
             >
-              Forgot password?
+              {t("auth.forgotPassword")}
             </Link>
           </p>
         </div>
@@ -182,7 +193,7 @@ export default function LoginForm({
           ) : (
             <LogIn className="h-4 w-4" />
           )}
-          {loading ? "Signing in..." : "Sign In"}
+          {loading ? t("auth.signingIn") : t("auth.signIn")}
         </button>
       </form>
     </div>

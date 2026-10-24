@@ -35,6 +35,7 @@ const BOOLEAN_KEYS = new Set<keyof AppSettings>([
   "infoPopupEnabled",
   "setupCompleted",
   "grabFilterExtensionLimitsEnabled",
+  "debugMockExternal",
 ]);
 
 /** Keys mirrored in config.json — used when SQLite has no row yet. */

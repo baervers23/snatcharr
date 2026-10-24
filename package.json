@@ -1,6 +1,6 @@
 {
   "name": "snatcharr",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -44,5 +44,9 @@
     "postcss": "^8.5.4",
     "tailwindcss": "^4.1.8",
     "typescript": "^5.8.3"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.10.0": true,
+    "sharp@0.34.5": true
   }
 }

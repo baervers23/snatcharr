@@ -1,10 +1,9 @@
 "use client";
 
-import {
-  ADDITIONAL_APP_LOGIN_NOTE,
-  ADDITIONAL_APP_TYPES,
-  type AdditionalAppType,
-} from "@/lib/additional-app-types";
+import { ADDITIONAL_APP_TYPES, type AdditionalAppType } from "@/lib/additional-app-types";
+import { getCatalog } from "@/lib/i18n/catalog";
+import { I18nProvider, useLocale, useT } from "@/lib/i18n/client";
+import { resolveLocale, SUPPORTED_LOCALES, type LocaleCode } from "@/lib/i18n/config";
 import { defaultServiceUrl } from "@/lib/service-urls";
 import { cn } from "@/lib/utils";
 import {
@@ -28,7 +27,7 @@ import type { SetupPrefillData } from "@/lib/setup-prefill";
 import type { SetupGeneralSettings } from "@/lib/setup-settings";
 import type { SetupPageStatus } from "@/lib/setup-status";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { toast } from "sonner";
 
 
@@ -73,26 +72,26 @@ type GeneralSettingsData = SetupGeneralSettings;
 
 
 const STEPS = [
-  { id: 1, label: "Local Admin", icon: User },
-  { id: 2, label: "Indexer Client", icon: Search },
-  { id: 3, label: "Download Client", icon: Download },
-  { id: 4, label: "Additional Apps", icon: Layers },
-  { id: 5, label: "General Settings", icon: Settings },
+  { id: 1, labelKey: "setup.steps.admin", icon: User },
+  { id: 2, labelKey: "setup.steps.indexer", icon: Search },
+  { id: 3, labelKey: "setup.steps.client", icon: Download },
+  { id: 4, labelKey: "setup.steps.apps", icon: Layers },
+  { id: 5, labelKey: "setup.steps.general", icon: Settings },
 ] as const;
 
 const CLIENT_TYPE_GROUPS: Array<{
-  group: string;
+  groupKey: string;
   options: Array<{ value: ClientItem["type"]; label: string }>;
 }> = [
   {
-    group: "Usenet",
+    groupKey: "setup.groupUsenet",
     options: [
       { value: "sabnzbd", label: "SABnzbd" },
       { value: "nzbget", label: "NZBGet" },
     ],
   },
   {
-    group: "Torrent",
+    groupKey: "setup.groupTorrent",
     options: [
       { value: "qbittorrent", label: "qBittorrent" },
       { value: "transmission", label: "Transmission" },
@@ -132,25 +131,20 @@ const SETUP_APP_OPTIONS = Object.entries(ADDITIONAL_APP_TYPES).map(([value, meta
   label: meta.label,
 }));
 
-const API_KEY_HELP: Record<string, string> = {
-  prowlarr: "Find it in Prowlarr → Settings → General → Security → API Key",
-  nzbhydra2:
-    "Find it in NZBHydra2 → Config → Main → API Key  (or leave empty if auth is disabled)",
-  jackett:
-    "Find it in Jackett → Dashboard top-right → API Key  (copy the long hex string)",
-  sabnzbd: "Find it in SABnzbd → Config → General → API Key",
-  nzbget: "NZBGet uses username/password auth. Enter your ControlPassword here.",
-  qbittorrent:
-    "Set a Web UI password in qBittorrent → Tools → Options → Web UI → Authentication",
-  transmission:
-    "Find it in Transmission's settings.json → rpc-password (or configure via preferences)",
-  deluge: "Find it in Deluge → Preferences → Daemon → Authentication → Password",
-  jellyfin: "Find it in Jellyfin → Dashboard → API Keys → ✚ Add API Key",
-  seerr:
-    "Find it in Seerr → Settings → General → API Key",
-  organizr: "Find it in Organizr → Settings → API → Main API Key",
-  jfago: "Optional — only if your JFA-GO instance requires API authentication",
-};
+const AUTH_INFO_METHODS = [
+  "local",
+  "jellyfin",
+  "seerr-local",
+  "seerr-jellyfin",
+  "seerr-jellyfin-fallback",
+  "organizr",
+] as const;
+
+function authMethodInfoKey(method: string): string {
+  return AUTH_INFO_METHODS.includes(method as (typeof AUTH_INFO_METHODS)[number])
+    ? `setup.authInfo.${method}`
+    : "setup.authInfo.local";
+}
 
 
 const blankIndexer = (type: IndexerItem["type"] = "prowlarr"): IndexerItem => {
@@ -188,13 +182,43 @@ const blankApp = (type: AppItem["type"] = "jellyfin"): AppItem => ({
 
 export default function SetupWizard({
   prefill,
-  setupStatus: initialSetupStatus,
+  setupStatus,
 }: {
   prefill?: SetupPrefillData;
   setupStatus: SetupPageStatus;
 }) {
+  const parentLocale = useLocale();
+  const [setupLocale, setSetupLocale] = useState<LocaleCode>(() =>
+    resolveLocale(prefill?.generalSettings?.uiLanguage ?? parentLocale),
+  );
+
+  return (
+    <I18nProvider locale={setupLocale} dictionary={getCatalog(setupLocale)}>
+      <SetupWizardInner
+        prefill={prefill}
+        setupStatus={setupStatus}
+        setupLocale={setupLocale}
+        onLocaleChange={setSetupLocale}
+      />
+    </I18nProvider>
+  );
+}
+
+function SetupWizardInner({
+  prefill,
+  setupStatus: initialSetupStatus,
+  setupLocale,
+  onLocaleChange,
+}: {
+  prefill?: SetupPrefillData;
+  setupStatus: SetupPageStatus;
+  setupLocale: LocaleCode;
+  onLocaleChange: (locale: LocaleCode) => void;
+}) {
+  const t = useT();
   const router = useRouter();
   const prefillNotified = useRef(false);
+  const [languageConfirmed, setLanguageConfirmed] = useState(false);
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [loading, setLoading] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
@@ -234,10 +258,13 @@ export default function SetupWizard({
     requireAppGrant: prefill?.generalSettings?.requireAppGrant ?? false,
     maxSearchRequestsPerUserPerDay: prefill?.generalSettings?.maxSearchRequestsPerUserPerDay ?? 0,
     maxGrabsPerUserPerDay: prefill?.generalSettings?.maxGrabsPerUserPerDay ?? 0,
+    uiLanguage: prefill?.generalSettings?.uiLanguage ?? "en",
+    userDownloadSpeedLimitMbit: prefill?.generalSettings?.userDownloadSpeedLimitMbit ?? 0,
     warningOnOpen: prefill?.generalSettings?.warningOnOpen ?? "once",
     importantPopupText: prefill?.generalSettings?.importantPopupText ?? "",
   });
-  const [configLoaded] = useState(!!prefill?.hasExistingData);
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const configFileInputRef = useRef<HTMLInputElement>(null);
 
   const { hasJellyfin, hasOrganizr, hasSeerr } = authMethodOptions(addedApps);
 
@@ -252,45 +279,46 @@ export default function SetupWizard({
     setAddedClients((data.clients ?? []) as ClientItem[]);
     setAddedApps((data.apps ?? []) as AppItem[]);
     if (data.generalSettings) {
-      setGeneralSettings(data.generalSettings);
+      const uiLanguage = resolveLocale(data.generalSettings.uiLanguage ?? setupLocale);
+      setGeneralSettings({
+        authMethod: data.generalSettings.authMethod ?? "local",
+        signupEnabled: data.generalSettings.signupEnabled ?? false,
+        requireEmail: data.generalSettings.requireEmail ?? false,
+        requireAppGrant: data.generalSettings.requireAppGrant ?? false,
+        maxSearchRequestsPerUserPerDay: data.generalSettings.maxSearchRequestsPerUserPerDay ?? 0,
+        maxGrabsPerUserPerDay: data.generalSettings.maxGrabsPerUserPerDay ?? 0,
+        uiLanguage,
+        userDownloadSpeedLimitMbit: data.generalSettings.userDownloadSpeedLimitMbit ?? 0,
+        warningOnOpen: data.generalSettings.warningOnOpen ?? "once",
+        importantPopupText: data.generalSettings.importantPopupText ?? "",
+      });
+      onLocaleChange(uiLanguage);
     }
-  }
-
-  async function loadConfigJson() {
-    setLoadingConfig(true);
-    try {
-      const res = await fetch("/api/setup");
-      if (!res.ok) throw new Error("Failed to load config");
-      const data = (await res.json()) as SetupPrefillData & {
-        status?: SetupPageStatus;
-      };
-      applyPrefill(data);
-      if (data.status) setSetupStatus(data.status);
-      toast.success("config.json loaded — fields pre-filled. Re-enter the admin password.");
-    } catch {
-      toast.error("Could not load config.json");
-    } finally {
-      setLoadingConfig(false);
-    }
+    setConfigLoaded(true);
   }
 
   useEffect(() => {
     if (!configLoaded || prefillNotified.current) return;
     prefillNotified.current = true;
-    toast.message("config.json loaded — fields pre-filled. Re-enter the admin password on step 1.");
-  }, [configLoaded]);
+    toast.message(t("setup.toastConfigLoadedReenter"));
+  }, [configLoaded, t]);
 
-  async function persistProgress() {
+  async function persistProgress(overrides?: {
+    indexers?: IndexerItem[];
+    clients?: ClientItem[];
+    apps?: AppItem[];
+    generalSettings?: GeneralSettingsData;
+  }) {
     try {
       await fetch("/api/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "saveProgress",
-          indexers: addedIndexers,
-          clients: addedClients,
-          apps: addedApps,
-          generalSettings,
+          indexers: overrides?.indexers ?? addedIndexers,
+          clients: overrides?.clients ?? addedClients,
+          apps: overrides?.apps ?? addedApps,
+          generalSettings: overrides?.generalSettings ?? generalSettings,
         }),
       });
     } catch {
@@ -298,21 +326,29 @@ export default function SetupWizard({
     }
   }
 
-  async function goToStep(step: Step) {
-    await persistProgress();
+  async function goToStep(
+    step: Step,
+    overrides?: {
+      indexers?: IndexerItem[];
+      clients?: ClientItem[];
+      apps?: AppItem[];
+      generalSettings?: GeneralSettingsData;
+    },
+  ) {
+    await persistProgress(overrides);
     setCurrentStep(step);
   }
 
-  const [apiInfoModal, setApiInfoModal] = useState<string | null>(null);
+  const [infoModal, setInfoModal] = useState<{ title: string; text: string } | null>(null);
 
 
   async function testIndexer() {
     if (!pendingIndexer.url || !pendingIndexer.apiKey) {
-      toast.error("Please enter URL and API Key");
+      toast.error(t("setup.toastEnterUrlApiKey"));
       return;
     }
     if (!pendingIndexer.url.startsWith("http")) {
-      toast.error("URL must start with http:// or https://");
+      toast.error(t("setup.toastUrlHttp"));
       return;
     }
     setTestingIndexer(true);
@@ -323,7 +359,7 @@ export default function SetupWizard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "test",
-          type: "prowlarr",
+          type: pendingIndexer.type,
           url: pendingIndexer.url,
           apiKey: pendingIndexer.apiKey,
         }),
@@ -332,14 +368,14 @@ export default function SetupWizard({
       if (res.ok) {
         setIndexerTestStatus("success");
         setPendingIndexer((prev) => ({ ...prev, tested: true }));
-        toast.success("Indexer connected successfully");
+        toast.success(t("setup.toastIndexerConnected"));
       } else {
         setIndexerTestStatus("error");
-        toast.error(data.error ?? "Connection failed");
+        toast.error(data.error ?? t("setup.toastConnectionFailed"));
       }
     } catch {
       setIndexerTestStatus("error");
-      toast.error("Connection failed");
+      toast.error(t("setup.toastConnectionFailed"));
     } finally {
       setTestingIndexer(false);
       setTimeout(() => setIndexerTestStatus(null), 3000);
@@ -348,11 +384,11 @@ export default function SetupWizard({
 
   async function testClient() {
     if (!pendingClient.url || !pendingClient.apiKey) {
-      toast.error("Please enter URL and API Key");
+      toast.error(t("setup.toastEnterUrlApiKey"));
       return;
     }
     if (!pendingClient.url.startsWith("http")) {
-      toast.error("URL must start with http:// or https://");
+      toast.error(t("setup.toastUrlHttp"));
       return;
     }
     setTestingClient(true);
@@ -372,14 +408,14 @@ export default function SetupWizard({
       if (res.ok) {
         setClientTestStatus("success");
         setPendingClient((prev) => ({ ...prev, tested: true }));
-        toast.success("Download client connected successfully");
+        toast.success(t("setup.toastClientConnected"));
       } else {
         setClientTestStatus("error");
-        toast.error(data.error ?? "Connection failed");
+        toast.error(data.error ?? t("setup.toastConnectionFailed"));
       }
     } catch {
       setClientTestStatus("error");
-      toast.error("Connection failed");
+      toast.error(t("setup.toastConnectionFailed"));
     } finally {
       setTestingClient(false);
       setTimeout(() => setClientTestStatus(null), 3000);
@@ -388,11 +424,11 @@ export default function SetupWizard({
 
   async function testApp() {
     if (!pendingApp.url) {
-      toast.error("Please enter a URL");
+      toast.error(t("setup.toastEnterUrl"));
       return;
     }
     if (!pendingApp.url.startsWith("http")) {
-      toast.error("URL must start with http:// or https://");
+      toast.error(t("setup.toastUrlHttp"));
       return;
     }
     setTestingApp(true);
@@ -412,14 +448,14 @@ export default function SetupWizard({
       if (res.ok) {
         setAppTestStatus("success");
         setPendingApp((prev) => ({ ...prev, tested: true }));
-        toast.success("App connected successfully");
+        toast.success(t("setup.toastAppConnected"));
       } else {
         setAppTestStatus("error");
-        toast.error(data.error ?? "Connection failed");
+        toast.error(data.error ?? t("setup.toastConnectionFailed"));
       }
     } catch {
       setAppTestStatus("error");
-      toast.error("Connection failed");
+      toast.error(t("setup.toastConnectionFailed"));
     } finally {
       setTestingApp(false);
       setTimeout(() => setAppTestStatus(null), 3000);
@@ -428,48 +464,110 @@ export default function SetupWizard({
 
 
   function addIndexer() {
-    if (!pendingIndexer.url || !pendingIndexer.apiKey) {
-      toast.error("Please fill in URL and API Key first");
+    if (!pendingIndexer.tested) {
+      toast.error(t("setup.toastTestRequired"));
       return;
     }
     setAddedIndexers((prev) => [...prev, { ...pendingIndexer }]);
     setPendingIndexer(blankIndexer());
     setIndexerTestStatus(null);
-    toast.success(`"${pendingIndexer.name}" added`);
+    toast.success(t("setup.toastItemAdded", { name: pendingIndexer.name }));
   }
 
   function addClient() {
-    if (!pendingClient.url || !pendingClient.apiKey) {
-      toast.error("Please fill in URL and API Key first");
+    if (!pendingClient.tested) {
+      toast.error(t("setup.toastTestRequired"));
       return;
     }
     setAddedClients((prev) => [...prev, { ...pendingClient }]);
     setPendingClient(blankClient());
     setClientTestStatus(null);
-    toast.success(`"${pendingClient.name}" added`);
+    toast.success(t("setup.toastItemAdded", { name: pendingClient.name }));
   }
 
   function addApp() {
-    if (!pendingApp.url) {
-      toast.error("Please fill in the URL first");
+    if (!pendingApp.tested) {
+      toast.error(t("setup.toastTestRequired"));
       return;
     }
+    const name =
+      pendingApp.name ||
+      SETUP_APP_OPTIONS.find((o) => o.value === pendingApp.type)?.label ||
+      "";
     setAddedApps((prev) => [...prev, { ...pendingApp }]);
     setPendingApp(blankApp());
-    toast.success(
-      `"${pendingApp.name || SETUP_APP_OPTIONS.find((t) => t.value === pendingApp.type)?.label}" added`,
-    );
+    setAppTestStatus(null);
+    toast.success(t("setup.toastItemAdded", { name }));
+  }
+
+  async function confirmLanguageAndStart() {
+    const nextSettings = { ...generalSettings, uiLanguage: setupLocale };
+    setGeneralSettings(nextSettings);
+    await persistProgress({ generalSettings: nextSettings });
+    setLanguageConfirmed(true);
+    setCurrentStep(1);
   }
 
 
-  async function handleAdminSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  const adminReady =
+    setupStatus.hasPrimaryLocalAdmin && !setupStatus.adminNeedsPassword;
+
+  function openConfigFilePicker() {
+    if (!adminReady) {
+      toast.error(t("setup.toastCreateAdminFirst"));
+      return;
+    }
+    configFileInputRef.current?.click();
+  }
+
+  async function onConfigFileSelected(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!adminReady) {
+      toast.error(t("setup.toastCreateAdminFirst"));
+      return;
+    }
+    setLoadingConfig(true);
+    try {
+      const text = await file.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        toast.error(t("setup.toastConfigInvalid"));
+        return;
+      }
+      const res = await fetch("/api/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "importConfig", config: parsed }),
+      });
+      const data = (await res.json()) as SetupPrefillData & { error?: string };
+      if (!res.ok) {
+        toast.error(data.error ?? t("setup.toastConfigLoadFailed"));
+        return;
+      }
+      applyPrefill(data);
+      toast.success(t("setup.toastConfigLoaded"));
+    } catch {
+      toast.error(t("setup.toastConfigLoadFailed"));
+    } finally {
+      setLoadingConfig(false);
+    }
+  }
+
+  async function createAdmin() {
     if (adminData.password !== adminData.confirmPassword) {
-      toast.error("Passwords do not match");
+      toast.error(t("setup.toastPasswordsMismatch"));
       return;
     }
     if (adminData.password.length < 8) {
-      toast.error("Password must be at least 8 characters");
+      toast.error(t("setup.toastPasswordMin"));
+      return;
+    }
+    if (!adminData.username.trim()) {
+      toast.error(t("setup.toastUsernameRequired"));
       return;
     }
     setLoading(true);
@@ -481,11 +579,11 @@ export default function SetupWizard({
       });
       const data = (await response.json()) as { error?: string; finished?: boolean };
       if (!response.ok) {
-        toast.error(data.error ?? "Failed to save admin account");
+        toast.error(data.error ?? t("setup.toastAdminSaveFailed"));
         return;
       }
       if (data.finished) {
-        toast.success("Admin account created — redirecting to login…");
+        toast.success(t("setup.toastAdminCreatedRedirect"));
         router.push("/login");
         return;
       }
@@ -494,12 +592,26 @@ export default function SetupWizard({
         const statusData = (await statusRes.json()) as { status?: SetupPageStatus };
         if (statusData.status) setSetupStatus(statusData.status);
       }
-      setCurrentStep(2);
+      toast.success(t("setup.toastAdminCreated"));
     } catch {
-      toast.error("Failed to save admin account");
+      toast.error(t("setup.toastAdminSaveFailed"));
     } finally {
       setLoading(false);
     }
+  }
+
+  function continueAfterAdmin() {
+    if (!adminReady) {
+      toast.error(t("setup.toastCreateAdminFirst"));
+      return;
+    }
+    void goToStep(2);
+  }
+
+  function selectSetupLanguage(code: string) {
+    const locale = resolveLocale(code);
+    onLocaleChange(locale);
+    setGeneralSettings((prev) => ({ ...prev, uiLanguage: locale }));
   }
 
 
@@ -519,15 +631,24 @@ export default function SetupWizard({
           generalSettings,
         }),
       });
-      const data = await response.json();
+      const data = (await response.json()) as {
+        error?: string;
+        details?: { formErrors?: string[]; fieldErrors?: Record<string, string[]> };
+      };
       if (!response.ok) {
-        toast.error(data.error ?? "Setup failed");
+        const fieldMsg = data.details?.fieldErrors
+          ? Object.entries(data.details.fieldErrors)
+              .flatMap(([k, v]) => (v ?? []).map((m) => `${k}: ${m}`))
+              .slice(0, 2)
+              .join("; ")
+          : "";
+        toast.error(fieldMsg || data.error || t("setup.toastSetupFailed"));
         return;
       }
-      toast.success("Setup complete! Redirecting...");
+      toast.success(t("setup.toastSetupComplete"));
       setTimeout(() => router.push("/login"), 1500);
     } catch (err) {
-      toast.error("Setup failed. Please try again.");
+      toast.error(t("setup.toastSetupFailedRetry"));
       console.error(err);
     } finally {
       setLoading(false);
@@ -550,7 +671,7 @@ export default function SetupWizard({
     })),
     ...addedApps.map((ap) => ({
       id: ap.id,
-      label: ap.name || SETUP_APP_OPTIONS.find((t) => t.value === ap.type)?.label || ap.type,
+      label: ap.name || SETUP_APP_OPTIONS.find((o) => o.value === ap.type)?.label || ap.type,
       step: 4,
       onRemove: () => setAddedApps((prev) => prev.filter((x) => x.id !== ap.id)),
     })),
@@ -564,13 +685,45 @@ export default function SetupWizard({
         <LogoImage size={64} />
         <div>
           <h1 className="text-2xl font-bold text-foreground leading-tight">Snatcharr</h1>
-          <p className="text-xs text-muted-foreground">Initial Setup Wizard</p>
+          <p className="text-xs text-muted-foreground">{t("setup.wizardTitle")}</p>
         </div>
       </header>
 
       <main className="flex-1 flex items-start justify-center px-6 pt-10 pb-8">
       <div className="w-full max-w-2xl">
 
+      {!languageConfirmed ? (
+        <div className="nv-card p-6 sm:p-8 space-y-6">
+          <StepHeader
+            title={t("setup.languageTitle")}
+            description={t("setup.languageDesc")}
+          />
+          <div className="nv-card p-5 bg-muted/20">
+            <div className="flex items-center justify-between gap-4">
+              <label className="nv-label shrink-0">{t("settings.general.language")}</label>
+              <select
+                className="nv-input w-full max-w-xs ml-auto"
+                value={setupLocale}
+                onChange={(e) => selectSetupLanguage(e.target.value)}
+                autoFocus
+              >
+                {SUPPORTED_LOCALES.map((locale) => (
+                  <option key={locale.code} value={locale.code}>
+                    {locale.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <StepFooter
+            isFirst
+            loading={false}
+            onNext={() => void confirmLanguageAndStart()}
+            nextLabel={t("setup.next")}
+          />
+        </div>
+      ) : (
+        <>
       <div className="flex items-start justify-between mb-4 px-0.5">
         {STEPS.map((step, idx) => {
           const Icon = step.icon;
@@ -608,7 +761,7 @@ export default function SetupWizard({
                     state === "current" ? "text-primary" : "text-muted-foreground",
                   )}
                 >
-                  {step.label}
+                  {t(step.labelKey)}
                 </span>
               </div>
               {idx < STEPS.length - 1 && (
@@ -626,10 +779,15 @@ export default function SetupWizard({
 
       {configLoaded && (
         <div className="mb-4 rounded-md border border-primary/30 bg-primary/5 px-4 py-3">
-          <p className="text-sm font-medium text-primary">Configuration loaded from config.json</p>
+          <p className="text-sm font-medium text-primary">{t("setup.configLoadedTitle")}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            {addedIndexers.length} indexer(s), {addedClients.length} download client(s), {addedApps.length} app(s) pre-filled.
-            {adminData.username ? ` Admin: ${adminData.username}.` : ""} Password must be re-entered on step 1.
+            {t("setup.configLoadedCounts", {
+              indexers: addedIndexers.length,
+              clients: addedClients.length,
+              apps: addedApps.length,
+            })}
+            {adminData.username ? t("setup.prefillAdmin", { username: adminData.username }) : ""}{" "}
+            {t("setup.prefillPasswordHint")}
           </p>
         </div>
       )}
@@ -647,7 +805,7 @@ export default function SetupWizard({
                 type="button"
                 onClick={b.onRemove}
                 className="ml-0.5 rounded-full hover:bg-green-500/20 p-0.5 transition-colors"
-                aria-label={`Remove ${b.label}`}
+                aria-label={t("setup.removeBadge", { label: b.label })}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -660,51 +818,47 @@ export default function SetupWizard({
       <div className="nv-card p-6 sm:p-8">
 
         {currentStep === 1 && (
-          <form onSubmit={handleAdminSubmit} className="space-y-6">
-            <StepHeader
-              title="Create Local Admin Account"
-              description="This will be the primary local administrator account for Snatcharr."
-            />
-
-            {(setupStatus.configExists || setupStatus.needsPrimaryLocalAdmin) && (
-              <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm space-y-1">
-                {setupStatus.configExists && (
-                  <p className="text-foreground">
-                    <span className="font-medium">config.json</span> found at{" "}
-                    <code className="text-xs bg-muted px-1 rounded">{setupStatus.configPath}</code>
-                    {setupStatus.configSetupComplete ? (
-                      <span className="text-green-400"> — setupComplete: true</span>
-                    ) : (
-                      <span className="text-muted-foreground"> — setup not marked complete</span>
-                    )}
-                  </p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Database: <code className="bg-muted px-1 rounded">{setupStatus.dbPath}</code>
-                </p>
-                {setupStatus.needsPrimaryLocalAdmin && (
-                  <p className="text-amber-400">
-                    <span className="font-medium">Need to create a primary local admin</span>
-                    {" — "}
-                    {setupStatus.configSetupComplete
-                      ? "no admin with password found in the database at the path above. Enter a password and click “Create admin & go to login”."
-                      : "no admin account found in the database."}
-                  </p>
-                )}
-                {setupStatus.adminNeedsPassword && (
-                  <p className="text-amber-400">
-                    Admin user exists but has no password — set one below to finish setup.
-                  </p>
-                )}
-                {setupStatus.hasPrimaryLocalAdmin && (
-                  <p className="text-green-400">Primary local admin exists in the database.</p>
-                )}
-              </div>
-            )}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void createAdmin();
+            }}
+            className="space-y-6"
+          >
+            <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm space-y-1.5">
+              <p className="text-foreground">
+                {t("setup.database")}{" "}
+                <code className="text-xs bg-muted px-1 rounded break-all">{setupStatus.dbPath}</code>
+              </p>
+              <p className={adminReady ? "text-green-400" : "text-muted-foreground"}>
+                {adminReady ? t("setup.localAdminFound") : t("setup.localAdminNotFound")}
+              </p>
+            </div>
 
             <div className="nv-card p-5 space-y-4 bg-muted/20">
+              {!adminReady ? (
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-amber-400">
+                    {t("setup.localAdminRequiredTitle")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("setup.localAdminRequiredDesc")}
+                  </p>
+                  {setupStatus.adminNeedsPassword && (
+                    <p className="text-xs text-amber-400/90">{t("setup.adminNeedsPassword")}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-green-400">
+                    {t("setup.adminCreatedSuccess")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{t("setup.nextOrLoadHint")}</p>
+                </div>
+              )}
+
               <div className="space-y-2">
-                <label className="nv-label">Username *</label>
+                <label className="nv-label">{t("setup.usernameRequired")}</label>
                 <input
                   className="nv-input w-full"
                   type="text"
@@ -716,56 +870,79 @@ export default function SetupWizard({
                 />
               </div>
               <div className="space-y-2">
-                <label className="nv-label">Password *</label>
+                <label className="nv-label">{t("setup.passwordRequired")}</label>
                 <input
                   className="nv-input w-full"
                   type="password"
-                  placeholder="At least 8 characters"
+                  placeholder={t("setup.passwordPlaceholder")}
                   value={adminData.password}
                   onChange={(e) => setAdminData({ ...adminData, password: e.target.value })}
-                  required
+                  required={!adminReady}
                 />
               </div>
               <div className="space-y-2">
-                <label className="nv-label">Confirm Password *</label>
+                <label className="nv-label">{t("setup.confirmPasswordRequired")}</label>
                 <input
                   className="nv-input w-full"
                   type="password"
-                  placeholder="Repeat password"
+                  placeholder={t("setup.confirmPasswordPlaceholder")}
                   value={adminData.confirmPassword}
                   onChange={(e) =>
                     setAdminData({ ...adminData, confirmPassword: e.target.value })
                   }
-                  required
+                  required={!adminReady}
                 />
               </div>
+              <div className="flex justify-center pt-1">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Shield className="h-4 w-4" />}
+                  {adminReady ? t("setup.updateAdmin") : t("setup.createAdmin")}
+                </button>
+              </div>
             </div>
+
+            <input
+              ref={configFileInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={(e) => void onConfigFileSelected(e)}
+            />
 
             <StepFooter
               isFirst
               loading={loading}
-              nextLabel={
-                setupStatus.configSetupComplete ? "Create admin & go to login" : "Continue"
+              nextDisabled={!adminReady}
+              onNext={continueAfterAdmin}
+              nextLabel={t("setup.next")}
+              nextTitle={
+                adminReady
+                  ? t("setup.continueToIndexer")
+                  : t("setup.createAdminFirst")
               }
               leftAction={
                 <button
                   type="button"
-                  disabled={!setupStatus.configExists || loadingConfig}
-                  onClick={() => void loadConfigJson()}
+                  disabled={!adminReady || loadingConfig}
+                  onClick={openConfigFilePicker}
                   className="px-4 py-2 text-sm border border-border rounded-md hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   title={
-                    setupStatus.configExists
-                      ? "Load settings from config.json"
-                      : "config.json not found on the server"
+                    !adminReady
+                      ? t("setup.createAdminFirst")
+                      : t("setup.loadFromConfig")
                   }
                 >
                   {loadingConfig ? (
                     <span className="inline-flex items-center gap-2">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Loading…
+                      {t("common.loading")}
                     </span>
                   ) : (
-                    "Load config.json"
+                    t("setup.loadConfig")
                   )}
                 </button>
               }
@@ -776,14 +953,17 @@ export default function SetupWizard({
         {currentStep === 2 && (
           <div className="space-y-5">
             <StepHeader
-              title="Indexer Client"
-              description="Connect to your Indexer Client to enable searching."
+              title={t("setup.indexerTitle")}
+              description={t("setup.indexerDesc")}
             />
+            <p className="text-xs text-muted-foreground flex gap-2 -mt-2">
+              <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              {t("setup.testRequiredHint")}
+            </p>
 
-            {/* Input box */}
             <div className="nv-card p-5 space-y-4 bg-muted/20">
               <div className="space-y-2">
-                <label className="nv-label">Type</label>
+                <label className="nv-label">{t("setup.type")}</label>
                 <select
                   className="nv-input w-full"
                   value={pendingIndexer.type}
@@ -802,91 +982,134 @@ export default function SetupWizard({
               </div>
 
               <div className="space-y-2">
-                <label className="nv-label">Display Name</label>
+                <label className="nv-label">{t("setup.displayName")}</label>
                 <input
                   className="nv-input w-full"
                   value={pendingIndexer.name}
-                  onChange={(e) => setPendingIndexer({ ...pendingIndexer, name: e.target.value })}
+                  onChange={(e) => {
+                    setPendingIndexer({
+                      ...pendingIndexer,
+                      name: e.target.value,
+                      tested: false,
+                    });
+                    setIndexerTestStatus(null);
+                  }}
                   placeholder={
-                    INDEXER_TYPES.find((t) => t.value === pendingIndexer.type)?.defaultName
+                    INDEXER_TYPES.find((o) => o.value === pendingIndexer.type)?.defaultName
                   }
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="nv-label">URL *</label>
+                <label className="nv-label">{t("setup.urlRequired")}</label>
                 <input
                   className="nv-input w-full"
                   type="url"
                   value={pendingIndexer.url}
-                  onChange={(e) => setPendingIndexer({ ...pendingIndexer, url: e.target.value })}
+                  onChange={(e) => {
+                    setPendingIndexer({
+                      ...pendingIndexer,
+                      url: e.target.value,
+                      tested: false,
+                    });
+                    setIndexerTestStatus(null);
+                  }}
                   placeholder={
-                    INDEXER_TYPES.find((t) => t.value === pendingIndexer.type)?.defaultUrl
+                    INDEXER_TYPES.find((o) => o.value === pendingIndexer.type)?.defaultUrl
                   }
                 />
               </div>
 
-              {/* API Key with ⓘ icon — help text changes per type */}
               <div className="space-y-2">
                 <ApiKeyLabel
                   onInfo={() =>
-                    setApiInfoModal(API_KEY_HELP[pendingIndexer.type] ?? "")
+                    setInfoModal({ title: t("setup.apiKeyModalTitle"), text: t(`setup.apiHelp.${pendingIndexer.type}`) })
                   }
                 />
                 <input
                   className="nv-input w-full font-mono"
                   value={pendingIndexer.apiKey}
-                  onChange={(e) =>
-                    setPendingIndexer({ ...pendingIndexer, apiKey: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setPendingIndexer({
+                      ...pendingIndexer,
+                      apiKey: e.target.value,
+                      tested: false,
+                    });
+                    setIndexerTestStatus(null);
+                  }}
                   placeholder={
                     pendingIndexer.type === "nzbhydra2"
-                      ? "API key (optional if auth disabled)"
-                      : `Your ${INDEXER_TYPES.find((t) => t.value === pendingIndexer.type)?.label} API key`
+                      ? t("setup.apiKeyOptionalNzbhydra")
+                      : t("setup.apiKeyPlaceholder", {
+                          name:
+                            INDEXER_TYPES.find((o) => o.value === pendingIndexer.type)?.label ?? "",
+                        })
                   }
                 />
               </div>
 
-              {/* Test button centered at bottom of box */}
-              <div className="pt-1 flex justify-center">
+              <div className="pt-1 flex flex-wrap items-center justify-center gap-3">
                 <TestButton
                   onTest={testIndexer}
                   testing={testingIndexer}
                   status={indexerTestStatus}
                   disabled={!pendingIndexer.url}
                 />
+                <button
+                  type="button"
+                  onClick={addIndexer}
+                  disabled={!pendingIndexer.tested}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium border border-border bg-card hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title={
+                    pendingIndexer.tested
+                      ? t("setup.addIndexer")
+                      : t("setup.toastTestRequired")
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  {t("common.add")}
+                </button>
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={addIndexer}
-              disabled={!pendingIndexer.url || !pendingIndexer.apiKey}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-dashed border-border rounded-md text-sm text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Plus className="h-4 w-4" />
-              Add Indexer Client
-            </button>
-
             <StepFooter
               onBack={() => setCurrentStep(1)}
-              onNext={() => goToStep(3)}
+              onNext={() => void goToStep(3)}
               loading={false}
-              nextLabel="Continue"
+              nextLabel={t("setup.next")}
             />
           </div>
         )}
 
         {currentStep === 3 && (
           <div className="space-y-5">
-            <StepHeader
-              title="Download Client"
-              description="Connect any download client to enable the download handler."
-            />
+            <div className="flex items-start justify-between gap-3">
+              <StepHeader
+                title={t("setup.clientTitle")}
+                description={t("setup.clientDesc")}
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  setInfoModal({
+                    title: t("setup.clientGuideTitle"),
+                    text: t("setup.clientGuideSabnzbd"),
+                  })
+                }
+                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-border bg-card hover:bg-accent transition-colors"
+              >
+                <Info className="h-3.5 w-3.5" />
+                {t("setup.clientGuide")}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground flex gap-2 -mt-2">
+              <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              {t("setup.testRequiredHint")}
+            </p>
 
             <div className="nv-card p-5 space-y-4 bg-muted/20">
               <div className="space-y-2">
-                <label className="nv-label">Type</label>
+                <label className="nv-label">{t("setup.type")}</label>
                 <select
                   className="nv-input w-full"
                   value={pendingClient.type}
@@ -901,12 +1124,14 @@ export default function SetupWizard({
                       type: newType,
                       name: label,
                       url: defaultServiceUrl(newType),
+                      apiKey: "",
+                      tested: false,
                     });
                     setClientTestStatus(null);
                   }}
                 >
                   {CLIENT_TYPE_GROUPS.map((group) => (
-                    <optgroup key={group.group} label={`── ${group.group} ──`}>
+                    <optgroup key={group.groupKey} label={`-- ${t(group.groupKey)} --`}>
                       {group.options.map((opt) => (
                         <option key={opt.value} value={opt.value}>
                           {opt.label}
@@ -919,18 +1144,23 @@ export default function SetupWizard({
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="nv-label">Display Name</label>
+                  <label className="nv-label">{t("setup.displayName")}</label>
                   <input
                     className="nv-input w-full"
                     value={pendingClient.name}
-                    onChange={(e) =>
-                      setPendingClient({ ...pendingClient, name: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setPendingClient({
+                        ...pendingClient,
+                        name: e.target.value,
+                        tested: false,
+                      });
+                      setClientTestStatus(null);
+                    }}
                     placeholder="SABnzbd"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="nv-label">Category</label>
+                  <label className="nv-label">{t("setup.category")}</label>
                   <input
                     className="nv-input w-full"
                     value={pendingClient.category}
@@ -943,12 +1173,19 @@ export default function SetupWizard({
               </div>
 
               <div className="space-y-2">
-                <label className="nv-label">URL *</label>
+                <label className="nv-label">{t("setup.urlRequired")}</label>
                 <input
                   className="nv-input w-full"
                   type="url"
                   value={pendingClient.url}
-                  onChange={(e) => setPendingClient({ ...pendingClient, url: e.target.value })}
+                  onChange={(e) => {
+                    setPendingClient({
+                      ...pendingClient,
+                      url: e.target.value,
+                      tested: false,
+                    });
+                    setClientTestStatus(null);
+                  }}
                   placeholder={defaultServiceUrl(pendingClient.type)}
                 />
               </div>
@@ -956,44 +1193,53 @@ export default function SetupWizard({
               <div className="space-y-2">
                 <ApiKeyLabel
                   onInfo={() =>
-                    setApiInfoModal(API_KEY_HELP[pendingClient.type] ?? "")
+                    setInfoModal({ title: t("setup.apiKeyModalTitle"), text: t(`setup.apiHelp.${pendingClient.type}`) })
                   }
                 />
                 <input
                   className="nv-input w-full font-mono"
                   value={pendingClient.apiKey}
-                  onChange={(e) =>
-                    setPendingClient({ ...pendingClient, apiKey: e.target.value })
-                  }
-                  placeholder="API Key"
+                  onChange={(e) => {
+                    setPendingClient({
+                      ...pendingClient,
+                      apiKey: e.target.value,
+                      tested: false,
+                    });
+                    setClientTestStatus(null);
+                  }}
+                  placeholder={t("setup.apiKey")}
                 />
               </div>
 
-              <div className="pt-1 flex justify-center">
+              <div className="pt-1 flex flex-wrap items-center justify-center gap-3">
                 <TestButton
                   onTest={testClient}
                   testing={testingClient}
                   status={clientTestStatus}
                   disabled={!pendingClient.url || !pendingClient.apiKey}
                 />
+                <button
+                  type="button"
+                  onClick={addClient}
+                  disabled={!pendingClient.tested}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium border border-border bg-card hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title={
+                    pendingClient.tested
+                      ? t("setup.addClient")
+                      : t("setup.toastTestRequired")
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  {t("common.add")}
+                </button>
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={addClient}
-              disabled={!pendingClient.url || !pendingClient.apiKey}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-dashed border-border rounded-md text-sm text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Plus className="h-4 w-4" />
-              Add Download Client
-            </button>
-
             <StepFooter
               onBack={() => setCurrentStep(2)}
-              onNext={() => goToStep(4)}
+              onNext={() => void goToStep(4)}
               loading={false}
-              nextLabel="Continue"
+              nextLabel={t("setup.next")}
             />
           </div>
         )}
@@ -1001,13 +1247,17 @@ export default function SetupWizard({
         {currentStep === 4 && (
           <div className="space-y-5">
             <StepHeader
-              title="Additional Apps"
-              description="Connect additional but not needed apps for features like login authentication or sync user data."
+              title={t("setup.appsTitle")}
+              description={t("setup.appsDesc")}
             />
+            <p className="text-xs text-muted-foreground flex gap-2 -mt-2">
+              <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              {t("setup.testRequiredHint")}
+            </p>
 
             <div className="nv-card p-5 space-y-4 bg-muted/20">
               <div className="space-y-2">
-                <label className="nv-label">App Type</label>
+                <label className="nv-label">{t("setup.appType")}</label>
                 <select
                   className="nv-input w-full"
                   value={pendingApp.type}
@@ -1017,9 +1267,9 @@ export default function SetupWizard({
                     setAppTestStatus(null);
                   }}
                 >
-                  {SETUP_APP_OPTIONS.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
+                  {SETUP_APP_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
                     </option>
                   ))}
                 </select>
@@ -1027,43 +1277,57 @@ export default function SetupWizard({
 
               <div className="grid grid-cols-2 gap-4 items-start">
                 <div className="space-y-2">
-                  <label className="nv-label">Display Name</label>
+                  <label className="nv-label">{t("setup.displayName")}</label>
                   <input
                     className="nv-input w-full"
                     value={pendingApp.name}
-                    onChange={(e) => setPendingApp({ ...pendingApp, name: e.target.value })}
+                    onChange={(e) => {
+                      setPendingApp({
+                        ...pendingApp,
+                        name: e.target.value,
+                        tested: false,
+                      });
+                      setAppTestStatus(null);
+                    }}
                     placeholder={
-                      SETUP_APP_OPTIONS.find((t) => t.value === pendingApp.type)?.label
+                      SETUP_APP_OPTIONS.find((o) => o.value === pendingApp.type)?.label
                     }
                   />
                 </div>
 
                 <div className="space-y-1.5 pt-0.5">
                   <p className="text-xs font-semibold text-muted-foreground">
-                    Additional App Features:
+                    {t("setup.additionalAppFeatures")}
                   </p>
                   <ul className="space-y-1">
-                    {(ADDITIONAL_APP_TYPES[pendingApp.type]?.features ?? []).map((feat) => (
+                    {(ADDITIONAL_APP_TYPES[pendingApp.type]?.features ?? []).map((feat, index) => (
                       <li
                         key={feat}
                         className="flex items-start gap-1.5 text-xs text-foreground/80"
                       >
                         <Check className="h-3 w-3 text-primary mt-0.5 shrink-0" />
-                        {feat}
+                        {t(`setup.appFeatures.${pendingApp.type}.${index}`)}
                       </li>
                     ))}
                   </ul>
-                  <p className="text-xs text-primary font-medium pt-2">{ADDITIONAL_APP_LOGIN_NOTE}</p>
+                  <p className="text-xs text-primary font-medium pt-2">{t("setup.appLoginNote")}</p>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="nv-label">URL *</label>
+                <label className="nv-label">{t("setup.urlRequired")}</label>
                 <input
                   className="nv-input w-full"
                   type="url"
                   value={pendingApp.url}
-                  onChange={(e) => setPendingApp({ ...pendingApp, url: e.target.value })}
+                  onChange={(e) => {
+                    setPendingApp({
+                      ...pendingApp,
+                      url: e.target.value,
+                      tested: false,
+                    });
+                    setAppTestStatus(null);
+                  }}
                   placeholder={defaultServiceUrl(pendingApp.type)}
                 />
               </div>
@@ -1071,42 +1335,51 @@ export default function SetupWizard({
               <div className="space-y-2">
                 <ApiKeyLabel
                   onInfo={() =>
-                    setApiInfoModal(API_KEY_HELP[pendingApp.type] ?? "")
+                    setInfoModal({ title: t("setup.apiKeyModalTitle"), text: t(`setup.apiHelp.${pendingApp.type}`) })
                   }
                 />
                 <input
                   className="nv-input w-full font-mono"
                   value={pendingApp.apiKey}
-                  onChange={(e) => setPendingApp({ ...pendingApp, apiKey: e.target.value })}
-                  placeholder="API Key (optional for some apps)"
+                  onChange={(e) => {
+                    setPendingApp({
+                      ...pendingApp,
+                      apiKey: e.target.value,
+                      tested: false,
+                    });
+                    setAppTestStatus(null);
+                  }}
+                  placeholder={t("setup.apiKeyOptionalApps")}
                 />
               </div>
 
-              <div className="pt-1 flex justify-center">
+              <div className="pt-1 flex flex-wrap items-center justify-center gap-3">
                 <TestButton
                   onTest={testApp}
                   testing={testingApp}
                   status={appTestStatus}
                   disabled={!pendingApp.url}
                 />
+                <button
+                  type="button"
+                  onClick={addApp}
+                  disabled={!pendingApp.tested}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium border border-border bg-card hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title={
+                    pendingApp.tested ? t("setup.addApp") : t("setup.toastTestRequired")
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  {t("common.add")}
+                </button>
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={addApp}
-              disabled={!pendingApp.url}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-dashed border-border rounded-md text-sm text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Plus className="h-4 w-4" />
-              Add Additional App
-            </button>
-
             <StepFooter
               onBack={() => setCurrentStep(3)}
-              onNext={() => goToStep(5)}
+              onNext={() => void goToStep(5)}
               loading={false}
-              nextLabel="Continue"
+              nextLabel={t("setup.next")}
             />
           </div>
         )}
@@ -1114,16 +1387,13 @@ export default function SetupWizard({
         {currentStep === 5 && (
           <div className="space-y-5">
             <StepHeader
-              title="General Settings"
-              description="Configure basic behaviour and access control for your Snatcharr instance."
+              title={t("setup.generalTitle")}
+              description={t("setup.generalDesc")}
             />
 
             <div className="nv-card p-5 space-y-5 bg-muted/20">
               <div className="space-y-2">
-                <label className="nv-label">Authentication Method</label>
-                <p className="text-xs text-muted-foreground -mt-1">
-                  Same options as Settings → Security. External providers need a matching app from Step 4.
-                </p>
+                <label className="nv-label">{t("settings.security.authMethod")}</label>
                 <select
                   className="nv-input w-full"
                   value={generalSettings.authMethod}
@@ -1134,30 +1404,40 @@ export default function SetupWizard({
                     })
                   }
                 >
-                  <option value="local">Local (Username / Password)</option>
+                  <option value="local">{t("setup.authLocal")}</option>
                   <option value="jellyfin" disabled={!hasJellyfin}>
-                    Jellyfin{hasJellyfin ? "" : " (add Jellyfin app first)"}
+                    {t("setup.authJellyfin")}
+                    {hasJellyfin ? "" : t("setup.authAddFirst", { app: "Jellyfin" })}
                   </option>
                   <option value="seerr-local" disabled={!hasSeerr}>
-                    Seerr — local account{hasSeerr ? "" : " (add Seerr app first)"}
+                    {t("setup.seerrLocal")}
+                    {hasSeerr ? "" : t("setup.authAddFirst", { app: "Seerr" })}
                   </option>
                   <option value="seerr-jellyfin" disabled={!hasSeerr}>
-                    Seerr — via Jellyfin{hasSeerr ? "" : " (add Seerr app first)"}
+                    {t("setup.seerrJellyfin")}
+                    {hasSeerr ? "" : t("setup.authAddFirst", { app: "Seerr" })}
                   </option>
                   <option value="seerr-jellyfin-fallback" disabled={!hasSeerr || !hasJellyfin}>
-                    Seerr Jellyfin + Jellyfin fallback
-                    {hasSeerr && hasJellyfin ? "" : " (needs Seerr & Jellyfin)"}
+                    {t("setup.seerrJellyfinFallback")}
+                    {hasSeerr && hasJellyfin ? "" : t("setup.authNeedsBoth")}
                   </option>
                   <option value="organizr" disabled={!hasOrganizr}>
-                    Organizr v2{hasOrganizr ? "" : " (add Organizr app first)"}
+                    {t("setup.organizrV2")}
+                    {hasOrganizr ? "" : t("setup.authAddFirst", { app: "Organizr" })}
                   </option>
                 </select>
+                <div className="rounded-md border border-border/60 bg-muted/40 px-3 py-2.5 flex gap-2">
+                  <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {t(authMethodInfoKey(generalSettings.authMethod))}
+                  </p>
+                </div>
               </div>
 
               <div className="border-t border-border/60 pt-4 space-y-4">
                 <SettingsToggle
-                  label="Allow public signup"
-                  description="Users can register from the login screen (same as Settings → Security)"
+                  label={t("setup.signupLabel")}
+                  description={t("setup.signupDesc")}
                   value={generalSettings.signupEnabled}
                   onChange={(v) =>
                     setGeneralSettings({ ...generalSettings, signupEnabled: v })
@@ -1165,8 +1445,8 @@ export default function SetupWizard({
                 />
 
                 <SettingsToggle
-                  label="Email address required"
-                  description="Only enforced with SMTP (step Email) or a Jellyfin/Seerr sync app. Auth/sync auto-verifies; local users need SMTP or admin approval."
+                  label={t("setup.requireEmailLabel")}
+                  description={t("setup.requireEmailDesc")}
                   value={generalSettings.requireEmail}
                   onChange={(v) =>
                     setGeneralSettings({ ...generalSettings, requireEmail: v })
@@ -1174,8 +1454,8 @@ export default function SetupWizard({
                 />
 
                 <SettingsToggle
-                  label="Grant required to use the app"
-                  description="New users cannot search or grab until an admin grants access (Users → can grab)"
+                  label={t("setup.appGrantLabel")}
+                  description={t("setup.appGrantDesc")}
                   value={generalSettings.requireAppGrant}
                   onChange={(v) =>
                     setGeneralSettings({ ...generalSettings, requireAppGrant: v })
@@ -1185,8 +1465,8 @@ export default function SetupWizard({
 
               <div className="border-t border-border/60 pt-4 space-y-4">
                 <div className="space-y-2">
-                  <label className="nv-label">Limit search requests / day (all users)</label>
-                  <p className="text-xs text-muted-foreground -mt-1">0 = unlimited. Resets daily at 11:00 AM.</p>
+                  <label className="nv-label">{t("setup.searchLimitLabel")}</label>
+                  <p className="text-xs text-muted-foreground -mt-1">{t("setup.limitHint")}</p>
                   <input
                     type="number"
                     min={0}
@@ -1202,8 +1482,8 @@ export default function SetupWizard({
                 </div>
 
                 <div className="space-y-2">
-                  <label className="nv-label">Limit grabs / day (all users)</label>
-                  <p className="text-xs text-muted-foreground -mt-1">0 = unlimited. Resets daily at 11:00 AM.</p>
+                  <label className="nv-label">{t("setup.grabLimitLabel")}</label>
+                  <p className="text-xs text-muted-foreground -mt-1">{t("setup.limitHint")}</p>
                   <input
                     type="number"
                     min={0}
@@ -1217,11 +1497,39 @@ export default function SetupWizard({
                     }
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <label className="nv-label">{t("setup.downloadSpeedLabel")}</label>
+                  <p className="text-xs text-muted-foreground -mt-1">
+                    {t("setup.downloadSpeedHint")}
+                  </p>
+                  <div className="relative w-32">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.1}
+                      className="nv-input w-full pr-14"
+                      value={generalSettings.userDownloadSpeedLimitMbit}
+                      onChange={(e) =>
+                        setGeneralSettings({
+                          ...generalSettings,
+                          userDownloadSpeedLimitMbit: Math.max(
+                            0,
+                            parseFloat(e.target.value) || 0,
+                          ),
+                        })
+                      }
+                    />
+                    <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-xs text-muted-foreground">
+                      {t("settings.security.downloadSpeedUnit")}
+                    </span>
+                  </div>
+                </div>
               </div>
 
               <div className="border-t border-border/60 pt-4 space-y-4">
                 <div className="space-y-2">
-                  <label className="nv-label">Show Disclaimer when open Snatcharr</label>
+                  <label className="nv-label">{t("setup.disclaimerLabel")}</label>
                   <select
                     className="nv-input w-full"
                     value={generalSettings.warningOnOpen}
@@ -1232,18 +1540,18 @@ export default function SetupWizard({
                       })
                     }
                   >
-                    <option value="once">Once (per session)</option>
-                    <option value="always">Always</option>
-                    <option value="disabled">Disabled</option>
+                    <option value="once">{t("setup.disclaimerOnce")}</option>
+                    <option value="always">{t("setup.disclaimerAlways")}</option>
+                    <option value="disabled">{t("setup.disclaimerDisabled")}</option>
                   </select>
                 </div>
 
                 {generalSettings.warningOnOpen !== "disabled" && (
                   <div className="space-y-2">
-                    <label className="nv-label">Disclaimer text</label>
+                    <label className="nv-label">{t("setup.disclaimerText")}</label>
                     <textarea
                       className="nv-input w-full min-h-28 resize-y"
-                      placeholder="Disclaimer, rules or notice"
+                      placeholder={t("setup.disclaimerPlaceholder")}
                       value={generalSettings.importantPopupText}
                       onChange={(e) =>
                         setGeneralSettings({
@@ -1257,14 +1565,13 @@ export default function SetupWizard({
               </div>
             </div>
 
-            {/* Final step — no skip, Complete Setup button */}
             <div className="flex items-center justify-between pt-1">
               <button
                 type="button"
-                onClick={() => goToStep(4)}
+                onClick={() => void goToStep(4)}
                 className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
-                ← Back
+                ? {t("common.back")}
               </button>
               <button
                 type="button"
@@ -1275,12 +1582,12 @@ export default function SetupWizard({
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Setting up…
+                    {t("setup.settingUp")}
                   </>
                 ) : (
                   <>
                     <Check className="h-4 w-4" />
-                    Complete Setup
+                    {t("setup.completeSetup")}
                   </>
                 )}
               </button>
@@ -1288,18 +1595,23 @@ export default function SetupWizard({
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* Footer */}
       <p className="text-center text-xs text-muted-foreground mt-4">
-        Snatcharr v1.0 · All settings can be changed later in Settings
+        {t("setup.footerNote")}
       </p>
 
       </div>
       </main>
 
-      {/* API Key Info Modal — outside main so it always covers the full page */}
-      {apiInfoModal !== null && (
-        <ApiKeyInfoModal text={apiInfoModal} onClose={() => setApiInfoModal(null)} />
+      {infoModal !== null && (
+        <InfoModal
+          title={infoModal.title}
+          text={infoModal.text}
+          onClose={() => setInfoModal(null)}
+        />
       )}
     </div>
   );
@@ -1316,18 +1628,19 @@ function StepHeader({ title, description }: { title: string; description: string
 }
 
 function ApiKeyLabel({ onInfo }: { onInfo: () => void }) {
+  const t = useT();
   return (
     <div className="flex items-center justify-between">
-      <label className="nv-label">API Key *</label>
+      <label className="nv-label">{t("setup.apiKeyRequired")}</label>
       <button
         type="button"
         onClick={onInfo}
         tabIndex={-1}
         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
-        aria-label="API key help"
+        aria-label={t("setup.apiKeyHelp")}
       >
         <Info className="h-3.5 w-3.5" />
-        <span>Where to find?</span>
+        <span>{t("setup.apiKeyWhere")}</span>
       </button>
     </div>
   );
@@ -1344,6 +1657,7 @@ function TestButton({
   status: "success" | "error" | null;
   disabled: boolean;
 }) {
+  const t = useT();
   return (
     <button
       type="button"
@@ -1369,12 +1683,12 @@ function TestButton({
         <Search className="h-4 w-4" />
       )}
       {testing
-        ? "Testing…"
+        ? t("setup.testing")
         : status === "success"
-        ? "Connected"
+        ? t("setup.connected")
         : status === "error"
-        ? "Failed — Retry"
-        : "Test Connection"}
+        ? t("setup.failedRetry")
+        : t("setup.testConnection")}
     </button>
   );
 }
@@ -1384,6 +1698,8 @@ function StepFooter({
   onNext,
   loading,
   nextLabel,
+  nextDisabled,
+  nextTitle,
   isFirst,
   leftAction,
 }: {
@@ -1391,9 +1707,12 @@ function StepFooter({
   onNext?: () => void;
   loading: boolean;
   nextLabel: string;
+  nextDisabled?: boolean;
+  nextTitle?: string;
   isFirst?: boolean;
   leftAction?: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <div className="pt-1">
       <div className="flex items-center justify-between gap-3">
@@ -1405,7 +1724,7 @@ function StepFooter({
               onClick={onBack}
               className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              ← Back
+              ? {t("common.back")}
             </button>
           ) : null}
         </div>
@@ -1413,8 +1732,9 @@ function StepFooter({
         <button
           type={onNext ? "button" : "submit"}
           onClick={onNext}
-          disabled={loading}
-          className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors shrink-0"
+          disabled={loading || nextDisabled}
+          title={nextTitle}
+          className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
         >
           {nextLabel}
           <ChevronRight className="h-4 w-4" />
@@ -1433,6 +1753,7 @@ function AddedItemRow({
   sub: string;
   onRemove: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-green-500/10 border border-green-500/25 text-sm">
       <Check className="h-4 w-4 text-green-400 shrink-0" />
@@ -1442,7 +1763,7 @@ function AddedItemRow({
         type="button"
         onClick={onRemove}
         className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
-        aria-label="Remove"
+        aria-label={t("setup.remove")}
       >
         <Trash2 className="h-3.5 w-3.5" />
       </button>
@@ -1490,23 +1811,32 @@ function SettingsToggle({
   );
 }
 
-function ApiKeyInfoModal({ text, onClose }: { text: string; onClose: () => void }) {
+function InfoModal({
+  title,
+  text,
+  onClose,
+}: {
+  title: string;
+  text: string;
+  onClose: () => void;
+}) {
+  const t = useT();
   return (
     <div
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border rounded-lg shadow-2xl w-full max-w-sm"
+        className="bg-card border border-border rounded-lg shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 p-4 border-b border-border">
           <Info className="h-4 w-4 text-primary shrink-0" />
-          <h3 className="text-sm font-semibold">Where to find your API Key</h3>
+          <h3 className="text-sm font-semibold">{title}</h3>
           <button
             onClick={onClose}
             className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -1519,7 +1849,7 @@ function ApiKeyInfoModal({ text, onClose }: { text: string; onClose: () => void 
             onClick={onClose}
             className="px-4 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90 transition-colors"
           >
-            Got it
+            {t("setup.gotIt")}
           </button>
         </div>
       </div>

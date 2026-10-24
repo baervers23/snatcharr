@@ -36,7 +36,7 @@
   <a href="https://hub.docker.com/r/baervers23/snatcharr"><img src="https://img.shields.io/docker/stars/baervers23/snatcharr?style=flat-square" alt="Docker stars"></a>
 </p>
 
-**v0.9.3** — A self-hosted Usenet search and grab manager for home labs and Jellyfin setups.
+**v0.9.4** — A self-hosted Usenet search and grab manager for home labs and Jellyfin setups.
 
 
 Search releases through Prowlarr, send NZBs to SABnzbd or NZBGet, track grabs, and manage users with daily limits. Built with Next.js 15, SQLite, and Auth.js.
@@ -177,7 +177,7 @@ docker compose --profile redis up -d
 To build and publish the image yourself (or run from source):
 
 ```bash
-docker build -t baervers23/snatcharr:latest --build-arg APP_VERSION=0.9.3 .
+docker build -t baervers23/snatcharr:latest --build-arg APP_VERSION=0.9.4 .
 ```
 
 Run locally without pushing:

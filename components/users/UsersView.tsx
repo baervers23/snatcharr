@@ -2,13 +2,12 @@
 
 import type { User } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 import { formatDistanceToNow } from "date-fns";
 import { Check, Edit2, Loader2, Plus, RefreshCw, Shield, Trash2, User as UserIcon, Users, X } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 import { toast } from "sonner";
-
-const EXTERNAL_AUTH_SYNC_LABEL = "Synced with external auth";
 
 interface Props {
   users: User[];
@@ -16,6 +15,7 @@ interface Props {
 }
 
 export default function UsersView({ users: initialUsers, currentUserId }: Props) {
+  const t = useT();
   const [userList, setUserList] = useState(initialUsers);
   const [showAdd, setShowAdd] = useState(false);
   const [newUser, setNewUser] = useState({ username: "", password: "", email: "", role: "user" as "admin" | "user", maxGrabsPerDay: 20 });
@@ -34,14 +34,6 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
     ignoreSyncedLimits: false,
     emailVerified: false,
   });
-  const [editUsage, setEditUsage] = useState<{
-    grabsToday: number;
-    downloadsToday: number;
-    grabMax: number;
-    downloadMax: number;
-    grabsLeft: number | null;
-    downloadsLeft: number | null;
-  } | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [syncingAll, setSyncingAll] = useState(false);
@@ -52,7 +44,6 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
 
   async function openEdit(user: User) {
     setEditUser(user);
-    setEditUsage(null);
     setEditForm({
       email: user.email ?? "",
       maxGrabsPerDay: user.maxGrabsPerDay ?? 0,
@@ -66,17 +57,6 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
       ignoreSyncedLimits: user.ignoreSyncedLimits ?? false,
       emailVerified: user.emailVerified ?? false,
     });
-    try {
-      const res = await fetch(`/api/users/${user.id}`);
-      if (res.ok) {
-        const data = (await res.json()) as {
-          usage?: typeof editUsage;
-        };
-        if (data.usage) setEditUsage(data.usage);
-      }
-    } catch {
-      /* usage display optional */
-    }
   }
 
   async function syncAllUsers(source: "jellyfin" | "seerr") {
@@ -95,7 +75,7 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
         source?: string;
         errors?: string[];
       };
-      if (!response.ok) throw new Error(data.error ?? "Sync failed");
+      if (!response.ok) throw new Error(data.error ?? t("users.syncFailed"));
 
       const refresh = await fetch("/api/users");
       if (refresh.ok) {
@@ -103,12 +83,18 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
         setUserList(refreshed.users ?? userList);
       }
 
-      toast.success(`Synced ${data.synced ?? 0}/${data.total ?? 0} users from ${data.source ?? source}`);
+      toast.success(
+        t("users.syncedCount", {
+          synced: data.synced ?? 0,
+          total: data.total ?? 0,
+          source: data.source ?? source,
+        }),
+      );
       if (data.errors?.length) {
-        toast.warning(`${data.errors.length} user(s) could not be synced`);
+        toast.warning(t("users.syncPartialErrors", { count: data.errors.length }));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sync failed");
+      toast.error(err instanceof Error ? err.message : t("users.syncFailed"));
     } finally {
       setSyncingAll(false);
     }
@@ -123,7 +109,7 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
         body: JSON.stringify({ source }),
       });
       const data = (await response.json()) as { error?: string; email?: string; avatarUrl?: string };
-      if (!response.ok) throw new Error(data.error ?? "Sync failed");
+      if (!response.ok) throw new Error(data.error ?? t("users.syncFailed"));
       setUserList((prev) =>
         prev.map((u) =>
           u.id === user.id
@@ -136,13 +122,13 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
             : u,
         ),
       );
-      const parts = [`Synced ${user.username} from ${source}`];
-      if (data.email) parts.push("email updated");
-      if (data.avatarUrl) parts.push("avatar updated");
+      const parts = [t("users.syncedUser", { username: user.username, source })];
+      if (data.email) parts.push(t("users.emailUpdated"));
+      if (data.avatarUrl) parts.push(t("users.avatarUpdated"));
       toast.success(parts.join(" — "));
       setSyncTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Sync failed");
+      toast.error(err instanceof Error ? err.message : t("users.syncFailed"));
     } finally {
       setSyncingId(null);
     }
@@ -171,7 +157,10 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
       });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) {
-        toast.error(data.error ?? (response.status === 422 ? "Invalid data (check email / password ≥ 8 chars)" : "Failed to update user"));
+        toast.error(
+          data.error ??
+            (response.status === 422 ? t("users.invalidData") : t("users.updateFailed")),
+        );
         return;
       }
       setUserList((prev) =>
@@ -193,10 +182,10 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
             : u,
         ),
       );
-      toast.success(editForm.password ? "User updated (password reset)" : "User updated");
+      toast.success(editForm.password ? t("users.userUpdatedPassword") : t("users.userUpdated"));
       setEditUser(null);
     } catch {
-      toast.error("Failed to update user");
+      toast.error(t("users.updateFailed"));
     } finally {
       setSavingEdit(false);
     }
@@ -204,7 +193,7 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
 
   async function addUser() {
     if (!newUser.username || !newUser.password) {
-      toast.error("Username and password are required");
+      toast.error(t("users.usernamePasswordRequired"));
       return;
     }
     setSaving(true);
@@ -217,21 +206,20 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
           password: newUser.password,
           role: newUser.role,
           maxGrabsPerDay: newUser.maxGrabsPerDay,
-          // Email is optional for admin-created users — only send when provided.
           ...(newUser.email.trim() ? { email: newUser.email.trim() } : {}),
         }),
       });
       const data = await response.json() as { user?: User; error?: string };
       if (!response.ok) {
-        toast.error(data.error ?? "Failed to create user");
+        toast.error(data.error ?? t("users.createFailed"));
         return;
       }
       setUserList((prev) => [...prev, data.user!]);
       setShowAdd(false);
       setNewUser({ username: "", password: "", email: "", role: "user", maxGrabsPerDay: 20 });
-      toast.success("User created");
+      toast.success(t("users.userCreated"));
     } catch {
-      toast.error("Failed to create user");
+      toast.error(t("users.createFailed"));
     } finally {
       setSaving(false);
     }
@@ -246,20 +234,20 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
       });
       if (!response.ok) throw new Error();
       setUserList((prev) => prev.map((u) => u.id === user.id ? { ...u, isActive: !u.isActive } : u));
-      toast.success(user.isActive ? "User disabled" : "User enabled");
+      toast.success(user.isActive ? t("users.userDisabled") : t("users.userEnabled"));
     } catch {
-      toast.error("Failed to update user");
+      toast.error(t("users.updateFailed"));
     }
   }
 
   async function toggleRole(user: User) {
     if (user.id === currentUserId) {
-      toast.error("Cannot change your own role");
+      toast.error(t("users.cannotChangeOwnRole"));
       return;
     }
     const newRole = user.role === "admin" ? "user" : "admin";
-    const label = newRole === "admin" ? "promote to Admin" : "demote to User";
-    if (!confirm(`${label.charAt(0).toUpperCase() + label.slice(1)} "${user.username}"?`)) return;
+    const confirmKey = newRole === "admin" ? "users.promoteConfirm" : "users.demoteConfirm";
+    if (!confirm(t(confirmKey, { username: user.username }))) return;
     try {
       const response = await fetch(`/api/users/${user.id}`, {
         method: "PATCH",
@@ -270,25 +258,27 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
       setUserList((prev) =>
         prev.map((u) => (u.id === user.id ? { ...u, role: newRole } : u)),
       );
-      toast.success(`"${user.username}" ${label}d`);
+      toast.success(
+        t(newRole === "admin" ? "users.promoted" : "users.demoted", { username: user.username }),
+      );
     } catch {
-      toast.error("Failed to update role");
+      toast.error(t("users.roleUpdateFailed"));
     }
   }
 
   async function deleteUser(user: User) {
     if (user.id === currentUserId) {
-      toast.error("Cannot delete your own account");
+      toast.error(t("users.cannotDeleteSelf"));
       return;
     }
-    if (!confirm(`Delete user "${user.username}"? This cannot be undone.`)) return;
+    if (!confirm(t("users.deleteConfirm", { username: user.username }))) return;
     try {
       const response = await fetch(`/api/users/${user.id}`, { method: "DELETE" });
       if (!response.ok) throw new Error();
       setUserList((prev) => prev.filter((u) => u.id !== user.id));
-      toast.success("User deleted");
+      toast.success(t("users.userDeleted"));
     } catch {
-      toast.error("Failed to delete user");
+      toast.error(t("users.deleteFailed"));
     }
   }
 
@@ -297,72 +287,71 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold flex items-center gap-2">
           <Users className="h-5 w-5 text-primary" />
-          Users
+          {t("users.title")}
         </h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSyncAllOpen(true)}
             disabled={syncingAll}
             className="flex items-center gap-2 px-4 py-2 border border-border rounded-md text-sm font-medium hover:bg-accent transition-colors disabled:opacity-50"
-            title="Sync all users from Jellyfin or Seerr"
+            title={t("users.syncAllTitleBtn")}
           >
             {syncingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Sync All
+            {t("users.syncAll")}
           </button>
           <button
             onClick={() => setShowAdd(!showAdd)}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90"
           >
             <Plus className="h-4 w-4" />
-            Add User
+            {t("users.addUser")}
           </button>
         </div>
       </div>
 
-      {/* Add user form */}
       {showAdd && (
         <div className="nv-card p-5 space-y-4">
-          <h2 className="text-sm font-semibold">New User</h2>
+          <h2 className="text-sm font-semibold">{t("users.newUser")}</h2>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Username *</label>
+              <label className="text-xs text-muted-foreground">{t("users.usernameRequired")}</label>
               <input
                 className="nv-input w-full"
                 value={newUser.username}
                 onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                placeholder="username"
+                placeholder={t("users.usernamePlaceholder")}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Password *</label>
+              <label className="text-xs text-muted-foreground">{t("users.passwordRequired")}</label>
               <input
                 className="nv-input w-full"
                 type="password"
                 value={newUser.password}
                 onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                placeholder="Min 8 characters"
+                placeholder={t("users.passwordMin")}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Email (optional)</label>
+              <label className="text-xs text-muted-foreground">{t("auth.emailOptional")}</label>
               <input
                 className="nv-input w-full"
                 type="email"
                 value={newUser.email}
                 onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                placeholder="you@example.com"
+                placeholder={t("auth.emailPlaceholder")}
                 autoComplete="off"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Role</label>
+              <label className="text-xs text-muted-foreground">{t("common.role")}</label>
               <select className="nv-input w-full" value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value as "admin" | "user" })}>
-                <option value="user">User</option>
-                <option value="admin">Admin</option>
+                <option value="user">{t("users.roleUser")}</option>
+                <option value="admin">{t("users.roleAdmin")}</option>
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Max Grabs/Day (0 = unlimited)</label>
+              <label className="text-xs text-muted-foreground">{t("users.maxGrabsDayUnlimited")}</label>
               <input
                 className="nv-input w-full"
                 type="number"
@@ -373,31 +362,32 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
             </div>
           </div>
           <div className="flex gap-2 justify-end">
-            <button onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+            <button onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">
+              {t("common.cancel")}
+            </button>
             <button
               onClick={addUser}
               disabled={saving}
               className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Create User
+              {t("users.createUser")}
             </button>
           </div>
         </div>
       )}
 
-      {/* Users table */}
       <div className="nv-card overflow-hidden">
         <table className="nv-table">
           <thead>
             <tr>
-              <th>User</th>
-              <th>Role</th>
-              <th className="hidden lg:table-cell">Auth</th>
-              <th className="hidden md:table-cell">Grabs/Day</th>
-              <th className="hidden md:table-cell">Last Login</th>
-              <th>Status</th>
-              <th className="text-right">Actions</th>
+              <th>{t("common.user")}</th>
+              <th>{t("common.role")}</th>
+              <th className="hidden lg:table-cell">{t("users.auth")}</th>
+              <th className="hidden md:table-cell">{t("users.grabsDay")}</th>
+              <th className="hidden md:table-cell">{t("users.lastLogin")}</th>
+              <th>{t("common.status")}</th>
+              <th className="text-right">{t("common.actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -411,7 +401,9 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
                       {user.email && <p className="text-xs text-muted-foreground">{user.email}</p>}
                     </div>
                     {user.id === currentUserId && (
-                      <span className="text-xs bg-primary/15 text-primary px-1.5 py-0.5 rounded">You</span>
+                      <span className="text-xs bg-primary/15 text-primary px-1.5 py-0.5 rounded">
+                        {t("users.you")}
+                      </span>
                     )}
                   </div>
                 </td>
@@ -423,13 +415,13 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
                       : "bg-muted text-muted-foreground",
                   )}>
                     {user.role === "admin" ? <Shield className="inline h-3 w-3 mr-1" /> : <UserIcon className="inline h-3 w-3 mr-1" />}
-                    {user.role}
+                    {user.role === "admin" ? t("users.roleAdmin") : t("users.roleUser")}
                   </span>
                 </td>
                 <td className="hidden lg:table-cell">
                   {user.imported ? (
                     <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400">
-                      {EXTERNAL_AUTH_SYNC_LABEL}
+                      {t("users.syncedExternal")}
                     </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
@@ -441,7 +433,7 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
                 <td className="hidden md:table-cell text-sm text-muted-foreground">
                   {user.lastLoginAt
                     ? formatDistanceToNow(new Date(user.lastLoginAt), { addSuffix: true })
-                    : "Never"}
+                    : t("common.never")}
                 </td>
                 <td>
                   <span className={cn(
@@ -450,7 +442,7 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
                       ? "bg-green-500/15 text-green-400"
                       : "bg-red-500/15 text-red-400",
                   )}>
-                    {user.isActive ? "Active" : "Disabled"}
+                    {user.isActive ? t("common.active") : t("common.disabled")}
                   </span>
                 </td>
                 <td className="text-right">
@@ -459,11 +451,10 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
                       onClick={() => toggleActive(user)}
                       disabled={user.id === currentUserId}
                       className="p-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
-                      title={user.isActive ? "Disable user" : "Enable user"}
+                      title={user.isActive ? t("users.disableUser") : t("users.enableUser")}
                     >
                       {user.isActive ? <X className="h-4 w-4" /> : <Check className="h-4 w-4 text-green-400" />}
                     </button>
-                    {/* Promote / demote admin role */}
                     <button
                       onClick={() => toggleRole(user)}
                       disabled={user.id === currentUserId}
@@ -473,7 +464,7 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
                           ? "text-purple-400 hover:text-muted-foreground"
                           : "text-muted-foreground hover:text-purple-400",
                       )}
-                      title={user.role === "admin" ? "Demote to User" : "Promote to Admin"}
+                      title={user.role === "admin" ? t("users.demoteUser") : t("users.promoteAdmin")}
                     >
                       <Shield className="h-4 w-4" />
                     </button>
@@ -481,14 +472,14 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
                       onClick={() => { setSyncTarget(user); setSyncSource("jellyfin"); }}
                       disabled={syncingId === user.id}
                       className="p-1.5 text-muted-foreground hover:text-primary transition-colors disabled:opacity-30"
-                      title="Manual sync from app"
+                      title={t("users.manualSync")}
                     >
                       <RefreshCw className={cn("h-4 w-4", syncingId === user.id && "animate-spin")} />
                     </button>
                     <button
                       onClick={() => openEdit(user)}
                       className="p-1.5 text-muted-foreground hover:text-primary transition-colors"
-                      title="Edit user"
+                      title={t("common.edit")}
                     >
                       <Edit2 className="h-4 w-4" />
                     </button>
@@ -496,7 +487,7 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
                       onClick={() => deleteUser(user)}
                       disabled={user.id === currentUserId}
                       className="p-1.5 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-30"
-                      title="Delete user"
+                      title={t("users.deleteUserTitle")}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -511,8 +502,8 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
       {syncAllOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setSyncAllOpen(false)}>
           <div className="nv-card w-full max-w-sm p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-base font-semibold">Sync All Users</h2>
-            <p className="text-sm text-muted-foreground">Choose which app to sync profile data (email, avatar) from.</p>
+            <h2 className="text-base font-semibold">{t("users.syncAllTitle")}</h2>
+            <p className="text-sm text-muted-foreground">{t("users.syncAllHint")}</p>
             <div className="space-y-2">
               <label className="flex items-center gap-2 p-3 border border-border rounded-md cursor-pointer hover:border-primary/40">
                 <input type="radio" name="syncAllSource" checked={syncAllSource === "jellyfin"} onChange={() => setSyncAllSource("jellyfin")} />
@@ -524,14 +515,16 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
               </label>
             </div>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setSyncAllOpen(false)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+              <button onClick={() => setSyncAllOpen(false)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">
+                {t("common.cancel")}
+              </button>
               <button
                 onClick={() => void syncAllUsers(syncAllSource)}
                 disabled={syncingAll}
                 className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50"
               >
                 {syncingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Sync All
+                {t("users.syncAll")}
               </button>
             </div>
           </div>
@@ -541,8 +534,8 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
       {syncTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setSyncTarget(null)}>
           <div className="nv-card w-full max-w-sm p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-base font-semibold">Sync {syncTarget.username}</h2>
-            <p className="text-sm text-muted-foreground">Choose which app to sync profile data from.</p>
+            <h2 className="text-base font-semibold">{t("users.syncUser", { username: syncTarget.username })}</h2>
+            <p className="text-sm text-muted-foreground">{t("users.syncChooseApp")}</p>
             <div className="space-y-2">
               <label className="flex items-center gap-2 p-3 border border-border rounded-md cursor-pointer hover:border-primary/40">
                 <input type="radio" name="syncSource" checked={syncSource === "jellyfin"} onChange={() => setSyncSource("jellyfin")} />
@@ -554,21 +547,22 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
               </label>
             </div>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setSyncTarget(null)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+              <button onClick={() => setSyncTarget(null)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">
+                {t("common.cancel")}
+              </button>
               <button
                 onClick={() => syncUser(syncTarget, syncSource)}
                 disabled={syncingId === syncTarget.id}
                 className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50"
               >
                 {syncingId === syncTarget.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Sync
+                {t("users.sync")}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit user modal */}
       {editUser && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -581,7 +575,7 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold flex items-center gap-2">
                 <Edit2 className="h-4 w-4 text-primary" />
-                Edit {editUser.username}
+                {t("users.editUser", { username: editUser.username })}
               </h2>
               <button onClick={() => setEditUser(null)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
@@ -589,18 +583,18 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Email</label>
+              <label className="text-xs text-muted-foreground">{t("auth.email")}</label>
               <input
                 className="nv-input w-full"
                 type="email"
                 value={editForm.email}
                 onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                placeholder="you@example.com"
+                placeholder={t("auth.emailPlaceholder")}
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Password (min 8 chars, leave empty to keep)</label>
+              <label className="text-xs text-muted-foreground">{t("users.passwordKeep")}</label>
               <input
                 className="nv-input w-full"
                 type="password"
@@ -613,15 +607,15 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
 
             {editUser.imported && (
               <div className="rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-300">
-                {EXTERNAL_AUTH_SYNC_LABEL}
+                {t("users.syncedExternal")}
               </div>
             )}
 
             <div className="space-y-3 border-t border-border pt-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium">Email approved</p>
-                  <p className="text-xs text-muted-foreground">Allow access when email verification is required</p>
+                  <p className="text-sm font-medium">{t("users.emailApproved")}</p>
+                  <p className="text-xs text-muted-foreground">{t("users.emailApprovedDesc")}</p>
                 </div>
                 <EditToggle
                   checked={editForm.emailVerified}
@@ -631,24 +625,24 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
 
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium">Grab Permission</p>
-                  <p className="text-xs text-muted-foreground">Allow searching &amp; grabbing</p>
+                  <p className="text-sm font-medium">{t("users.grabPermission")}</p>
+                  <p className="text-xs text-muted-foreground">{t("users.grabPermissionDesc")}</p>
                 </div>
                 <EditToggle checked={editForm.canGrab} onChange={() => setEditForm({ ...editForm, canGrab: !editForm.canGrab })} />
               </div>
 
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium">Download Permission</p>
-                  <p className="text-xs text-muted-foreground">Allow downloading finished files</p>
+                  <p className="text-sm font-medium">{t("users.downloadPermission")}</p>
+                  <p className="text-xs text-muted-foreground">{t("users.downloadPermissionDesc")}</p>
                 </div>
                 <EditToggle checked={editForm.canDownload} onChange={() => setEditForm({ ...editForm, canDownload: !editForm.canDownload })} />
               </div>
 
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium">Manual NZB upload</p>
-                  <p className="text-xs text-muted-foreground">Shows Upload NZB menu and allows queueing NZBs</p>
+                  <p className="text-sm font-medium">{t("users.manualNzbUpload")}</p>
+                  <p className="text-xs text-muted-foreground">{t("users.manualNzbUploadDesc")}</p>
                 </div>
                 <EditToggle
                   checked={editForm.canUploadNzb}
@@ -658,8 +652,8 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
 
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium">Pick download client</p>
-                  <p className="text-xs text-muted-foreground">Choose which client receives grabs (requires global setting)</p>
+                  <p className="text-sm font-medium">{t("users.pickDownloader")}</p>
+                  <p className="text-xs text-muted-foreground">{t("users.pickDownloaderDesc")}</p>
                 </div>
                 <EditToggle
                   checked={editForm.canPickDownloader}
@@ -669,8 +663,8 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
 
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium">Custom limits (ignore global sync)</p>
-                  <p className="text-xs text-muted-foreground">Global default grabs/day won&apos;t overwrite this user&apos;s limits</p>
+                  <p className="text-sm font-medium">{t("users.customLimits")}</p>
+                  <p className="text-xs text-muted-foreground">{t("users.customLimitsDesc")}</p>
                 </div>
                 <EditToggle
                   checked={editForm.ignoreSyncedLimits}
@@ -681,7 +675,7 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
 
             {editForm.canUploadNzb && (
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Manual NZB limit / day (0 = ∞)</label>
+                <label className="text-xs text-muted-foreground">{t("users.manualNzbLimit")}</label>
                 <input
                   className="nv-input w-full"
                   type="number"
@@ -696,42 +690,32 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
 
             <div className="border-t border-border pt-4 space-y-3">
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Grabs today</label>
-                <p className="text-sm font-medium tabular-nums">
-                  {editUsage
-                    ? `${editUsage.grabsToday} used · ${editUsage.grabsLeft ?? "∞"} left (limit ${editUsage.grabMax || "∞"}/day)`
-                    : "—"}
-                </p>
+                <label className="text-xs text-muted-foreground">{t("users.maxGrabsDayUnlimited")}</label>
                 <input
                   className="nv-input w-full"
                   type="number"
                   min={0}
                   value={editForm.maxGrabsPerDay}
                   onChange={(e) => setEditForm({ ...editForm, maxGrabsPerDay: parseInt(e.target.value) || 0 })}
-                  placeholder="Daily grab limit (0 = ∞)"
+                  placeholder={t("users.grabLimitPlaceholder")}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Downloads today</label>
-                <p className="text-sm font-medium tabular-nums">
-                  {editUsage
-                    ? `${editUsage.downloadsToday} used · ${editUsage.downloadsLeft ?? "∞"} left (limit ${editUsage.downloadMax || "∞"}/day)`
-                    : "—"}
-                </p>
+                <label className="text-xs text-muted-foreground">{t("users.maxDownloadsDayUnlimited")}</label>
                 <input
                   className="nv-input w-full"
                   type="number"
                   min={0}
                   value={editForm.maxDownloadsPerDay}
                   onChange={(e) => setEditForm({ ...editForm, maxDownloadsPerDay: parseInt(e.target.value) || 0 })}
-                  placeholder="Daily download limit (0 = ∞)"
+                  placeholder={t("users.downloadLimitPlaceholder")}
                 />
               </div>
             </div>
 
             <div className="flex gap-2 justify-end pt-1">
               <button onClick={() => setEditUser(null)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 onClick={saveEdit}
@@ -739,7 +723,7 @@ export default function UsersView({ users: initialUsers, currentUserId }: Props)
                 className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
               >
                 {savingEdit ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                Save
+                {t("common.save")}
               </button>
             </div>
           </div>

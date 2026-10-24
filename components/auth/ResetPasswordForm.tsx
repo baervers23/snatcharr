@@ -5,9 +5,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, Lock } from "lucide-react";
-import { SIGNUP_PASSWORD_HINT } from "@/lib/password-policy";
+import { useT } from "@/lib/i18n/client";
 
 export default function ResetPasswordForm() {
+  const t = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
@@ -19,11 +20,11 @@ export default function ResetPasswordForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (password !== confirmPassword) {
-      toast.error("Passwords do not match");
+      toast.error(t("auth.passwordsDoNotMatch"));
       return;
     }
     if (!token) {
-      toast.error("Invalid reset link");
+      toast.error(t("auth.invalidResetLink"));
       return;
     }
 
@@ -36,13 +37,13 @@ export default function ResetPasswordForm() {
       });
       const data = (await response.json()) as { error?: string };
       if (!response.ok) {
-        toast.error(data.error ?? "Reset failed");
+        toast.error(data.error ?? t("auth.resetFailed"));
         return;
       }
-      toast.success("Password updated — you can sign in now");
+      toast.success(t("auth.passwordResetSuccess"));
       router.push("/login");
     } catch {
-      toast.error("Reset failed. Please try again.");
+      toast.error(t("auth.resetFailedRetry"));
     } finally {
       setLoading(false);
     }
@@ -51,9 +52,9 @@ export default function ResetPasswordForm() {
   if (!token) {
     return (
       <div className="nv-card p-6 text-center space-y-3">
-        <p className="text-sm text-destructive">This reset link is invalid or has expired.</p>
+        <p className="text-sm text-destructive">{t("auth.invalidResetLink")}</p>
         <Link href="/forgot-password" className="text-sm text-primary hover:underline">
-          Request a new link
+          {t("auth.requestNewLink")}
         </Link>
       </div>
     );
@@ -63,7 +64,7 @@ export default function ResetPasswordForm() {
     <div className="nv-card p-6">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <label className="nv-label">New password</label>
+          <label className="nv-label">{t("auth.newPassword")}</label>
           <input
             className="nv-input w-full"
             type="password"
@@ -73,10 +74,10 @@ export default function ResetPasswordForm() {
             minLength={10}
             autoComplete="new-password"
           />
-          <p className="text-xs text-muted-foreground">{SIGNUP_PASSWORD_HINT}</p>
+          <p className="text-xs text-muted-foreground">{t("auth.passwordHint")}</p>
         </div>
         <div className="space-y-2">
-          <label className="nv-label">Confirm password</label>
+          <label className="nv-label">{t("auth.confirmPassword")}</label>
           <input
             className="nv-input w-full"
             type="password"
@@ -93,7 +94,7 @@ export default function ResetPasswordForm() {
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-          {loading ? "Saving…" : "Set new password"}
+          {loading ? t("common.saving") : t("auth.setNewPassword")}
         </button>
       </form>
     </div>

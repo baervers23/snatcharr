@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Loader2, Play, Save } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n/client";
 
 interface Props {
   settings: Partial<AppSettings>;
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export default function TasksView({ settings: initialSettings, embedded = false }: Props) {
+  const t = useT();
   const [tasks, setTasks] = useState<BackgroundTask[]>(
     Array.isArray(initialSettings.backgroundTasks)
       ? initialSettings.backgroundTasks
@@ -27,7 +29,7 @@ export default function TasksView({ settings: initialSettings, embedded = false 
   const [runningId, setRunningId] = useState<string | null>(null);
 
   function updateTask(id: string, patch: Partial<BackgroundTask>) {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+    setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, ...patch } : task)));
   }
 
   function updateInterval(id: string, amount: number, unit: TaskIntervalUnit) {
@@ -39,13 +41,13 @@ export default function TasksView({ settings: initialSettings, embedded = false 
     try {
       const response = await fetch(`/api/tasks/${id}/run`, { method: "POST" });
       const data = (await response.json().catch(() => ({}))) as { error?: string; lastRunAt?: string };
-      if (!response.ok) throw new Error(data.error ?? "Run failed");
+      if (!response.ok) throw new Error(data.error ?? t("tasks.runFailed"));
       if (data.lastRunAt) {
         updateTask(id, { lastRunAt: data.lastRunAt });
       }
-      toast.success("Task completed");
+      toast.success(t("tasks.completed"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to run task");
+      toast.error(err instanceof Error ? err.message : t("tasks.runFailed"));
     } finally {
       setRunningId(null);
     }
@@ -60,10 +62,10 @@ export default function TasksView({ settings: initialSettings, embedded = false 
         body: JSON.stringify({ backgroundTasks: tasks }),
       });
       const data = (await response.json().catch(() => ({}))) as { error?: string };
-      if (!response.ok) throw new Error(data.error ?? "Save failed");
-      toast.success("Tasks saved");
+      if (!response.ok) throw new Error(data.error ?? t("tasks.saveFailed"));
+      toast.success(t("tasks.saved"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save tasks");
+      toast.error(err instanceof Error ? err.message : t("tasks.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -73,21 +75,17 @@ export default function TasksView({ settings: initialSettings, embedded = false 
     <div className={cn("space-y-4", !embedded && "max-w-3xl mx-auto space-y-6")}>
       {!embedded && (
         <div>
-          <h1 className="text-xl font-semibold">Background Tasks</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Scheduled jobs that run while Snatcharr is running.
-          </p>
+          <h1 className="text-xl font-semibold">{t("tasks.title")}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t("tasks.description")}</p>
         </div>
       )}
 
       {embedded && (
-        <p className="text-sm text-muted-foreground">
-          Scheduled jobs that run while Snatcharr is running. Changes take effect immediately.
-        </p>
+        <p className="text-sm text-muted-foreground">{t("tasks.descriptionEmbedded")}</p>
       )}
 
       <div className="nv-card p-5 space-y-4">
-        {embedded && <h2 className="text-base font-semibold">Background Tasks</h2>}
+        {embedded && <h2 className="text-base font-semibold">{t("tasks.title")}</h2>}
 
         {tasks.map((task) => {
           const { amount, unit } = msToIntervalParts(task.intervalMs);
@@ -100,7 +98,7 @@ export default function TasksView({ settings: initialSettings, embedded = false 
                   <p className="text-xs text-muted-foreground mt-0.5">{task.description}</p>
                   {task.lastRunAt && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      Last run: {new Date(task.lastRunAt).toLocaleString()}
+                      {t("tasks.lastRun", { time: new Date(task.lastRunAt).toLocaleString() })}
                     </p>
                   )}
                 </div>
@@ -112,13 +110,13 @@ export default function TasksView({ settings: initialSettings, embedded = false 
                     className="flex items-center gap-1.5 px-3 py-1 text-xs border border-border rounded hover:bg-accent transition-colors disabled:opacity-50"
                   >
                     {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                    Run
+                    {t("tasks.run")}
                   </button>
                   <button
                     type="button"
                     onClick={() => updateTask(task.id, { enabled: !task.enabled })}
                     className={cn("relative w-10 h-5 rounded-full", task.enabled ? "bg-primary" : "bg-muted")}
-                    aria-label={task.enabled ? "Disable task" : "Enable task"}
+                    aria-label={task.enabled ? t("tasks.disable") : t("tasks.enable")}
                   >
                     <span
                       className={cn(
@@ -131,7 +129,7 @@ export default function TasksView({ settings: initialSettings, embedded = false 
               </div>
 
               <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="text-muted-foreground">Run every</span>
+                <span className="text-muted-foreground">{t("tasks.runEvery")}</span>
                 <input
                   className="nv-input w-20"
                   type="number"
@@ -146,9 +144,9 @@ export default function TasksView({ settings: initialSettings, embedded = false 
                   disabled={!task.enabled}
                   onChange={(e) => updateInterval(task.id, amount, e.target.value as TaskIntervalUnit)}
                 >
-                  <option value="minutes">minutes</option>
-                  <option value="hours">hours</option>
-                  <option value="days">days</option>
+                  <option value="minutes">{t("tasks.minutes")}</option>
+                  <option value="hours">{t("tasks.hours")}</option>
+                  <option value="days">{t("tasks.days")}</option>
                 </select>
                 <span className="text-xs text-muted-foreground">({formatTaskInterval(task.intervalMs)})</span>
               </div>
@@ -163,7 +161,7 @@ export default function TasksView({ settings: initialSettings, embedded = false 
             className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save
+            {t("common.save")}
           </button>
         </div>
       </div>

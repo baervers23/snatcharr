@@ -10,6 +10,7 @@ import { logAction, logActionFail } from "@/lib/audit";
 import { errorDetail } from "@/lib/action-log";
 import { resolveCategoryLabel } from "@/lib/utils";
 import { sanitizeSearchResultForUser } from "@/lib/search-results";
+import { isDebugMockExternal, mockSearchResults } from "@/lib/debug-mock";
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user) {
@@ -76,6 +77,46 @@ export async function GET(req: Request) {
     : [];
   const pageSize = await getSetting("maxResults");
   const fetchLimit = Math.min(Math.max(pageSize * 5, pageSize), 500);
+
+  if (await isDebugMockExternal()) {
+    const mocked = mockSearchResults(query, pageSize);
+    const isAdmin = session.user.role === "admin";
+    const sanitized = mocked.map((r) => {
+      const categoryName = resolveCategoryLabel(r.categories);
+      const cats = r.categories?.length
+        ? [{ id: r.categories[0].id, name: categoryName }]
+        : [];
+      return sanitizeSearchResultForUser(
+        {
+          guid: r.guid,
+          title: r.title,
+          publishDate: r.publishDate,
+          size: r.size ?? 0,
+          grabs: r.grabs ?? 0,
+          categories: cats,
+          indexerId: r.indexerId,
+          indexer: r.indexer,
+          posterUrl: r.posterUrl,
+          description: r.description,
+          commentUrl: r.commentUrl,
+          downloadUrl: r.downloadUrl,
+        },
+        isAdmin,
+      );
+    });
+    await incrementSearchCount(session.user.id);
+    logAction({
+      domain: "SEARCH",
+      action: "query",
+      outcome: "ok",
+      username: session.user.username,
+      details: `"${query}" → ${sanitized.length} mock results`,
+      req,
+      level: "debug",
+    });
+    return NextResponse.json({ results: sanitized, pageSize, mock: true });
+  }
+
   const activeIndexers = await db.query.indexers.findMany({
     where: (t, { eq }) => eq(t.enabled, true),
   });

@@ -28,6 +28,10 @@ import type { Grab } from "@/lib/db/schema";
 import { and, desc, eq, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import fs from "fs";
+import path from "path";
+import { isDebugMockExternal, mockSabJobId } from "@/lib/debug-mock";
+import { getDownloadDir } from "@/lib/paths";
 
 /**
  * Best-effort extraction of an NZB password. Indexers commonly embed it either
@@ -176,6 +180,70 @@ export async function POST(req: Request) {
         { status: 429 },
       );
     }
+  }
+
+  if (await isDebugMockExternal()) {
+    const keepDays = await getSetting("completedGrabKeepDays");
+    const expiresAt =
+      keepDays > 0
+        ? new Date(Date.now() + keepDays * 24 * 60 * 60 * 1000)
+        : null;
+
+    const downloadBase = getDownloadDir();
+    if (!fs.existsSync(downloadBase)) fs.mkdirSync(downloadBase, { recursive: true });
+    const folderName = `debug-mock-${Date.now().toString(36)}`;
+    const storagePath = path.join(downloadBase, folderName);
+    fs.mkdirSync(storagePath, { recursive: true });
+    fs.writeFileSync(
+      path.join(storagePath, "mock-release.txt"),
+      `Mock grab for: ${title}\nGuid: ${guid}\n`,
+      "utf8",
+    );
+    fs.writeFileSync(path.join(storagePath, "sample.bin"), Buffer.alloc(512 * 1024, 0x42));
+
+    const jobId = mockSabJobId();
+    const [created] = await db
+      .insert(grabs)
+      .values({
+        userId: session.user.id,
+        downloadClientId: null,
+        title,
+        indexerName: session.user.role === "admin" ? (indexerName ?? "Debug Mock Indexer") : null,
+        category,
+        categoryId,
+        sizeBytes: size ?? 512 * 1024,
+        ageSeconds,
+        guid,
+        nzbUrl: downloadUrl,
+        downloadClientJobId: jobId,
+        downloadClientStatus: "Completed",
+        downloadClientMessage: "Debug mock — no SABnzbd",
+        status: "completed",
+        progress: 100,
+        storagePath,
+        archivePath: storagePath,
+        completedAt: new Date(),
+        isPublic: userRow?.showGrabsPublic ?? false,
+        queuedAt: new Date(),
+        expiresAt,
+      })
+      .returning();
+
+    await recordGrabQueued(session.user.id);
+    await recordGrabCompleted(session.user.id, size ?? 512 * 1024);
+    await incrementGrabCount(session.user.id);
+
+    logAction({
+      domain: "GRAB",
+      action: "create",
+      outcome: "ok",
+      username: session.user.username,
+      details: `mock completed "${title}" (${jobId})`,
+      req,
+      level: "debug",
+    });
+
+    return NextResponse.json({ grab: created, mock: true });
   }
 
   const mayPickClient = await userCanPickDownloader(session.user.id, session.user.role);

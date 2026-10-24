@@ -66,13 +66,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const [infoPopupText, infoPopupMode] = await Promise.all([
+  const [infoPopupText, infoPopupMode, infoPopupTitle] = await Promise.all([
     getSetting("infoPopupText"),
     getSetting("infoPopupMode"),
+    getSetting("infoPopupTitle"),
   ]);
   const disclaimer = infoPopupText?.trim() || config.importantPopupText?.trim() || "";
   const mode = infoPopupMode ?? config.warningOnOpen;
   const infoPopup = mode !== "disabled" && disclaimer ? disclaimer : null;
+  const noticeTitle = infoPopupTitle?.trim() || "";
 
   const uploadGrant = await userCanUploadNzb(session.user.id, session.user.role);
   const canUploadNzb = uploadGrant.allowed;
@@ -87,6 +89,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       canUploadNzb={canUploadNzb}
       instanceName={config.instanceName}
       infoPopup={infoPopup}
+      infoPopupTitle={noticeTitle}
       infoPopupMode={mode}
     >
       {children}

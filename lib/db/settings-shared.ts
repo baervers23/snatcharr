@@ -70,6 +70,35 @@ export function formatTaskInterval(ms: number): string {
 /** Per file extension (e.g. .mp4) — matched in release title when grabbing. */
 export type ExtensionSizeLimit = { ext: string; minBytes: number; maxBytes: number };
 
+export type UploadNzbSite = { label: string; url: string };
+export type UploadNzbTip = { title: string; body: string };
+
+export const DEFAULT_UPLOAD_NZB_SITES: UploadNzbSite[] = [
+  { label: "NZBKing", url: "https://www.nzbking.com/" },
+  { label: "NZBStars", url: "https://nzbstars.com/" },
+  { label: "NZBIndex", url: "https://nzbindex.com/search" },
+  { label: "Binsearch", url: "https://www.binsearch.info/" },
+];
+
+export const DEFAULT_UPLOAD_NZB_TIPS: UploadNzbTip[] = [
+  {
+    title: "Search for content in a specific language",
+    body: "Append a language keyword to your query on NZB indexers, e.g. add “german” for German releases.\nExample: “MovieName german”",
+  },
+  {
+    title: "Find the newest releases",
+    body: "Sites like Xrel.to list recent scene releases. Copy a release name and paste it into an NZB search engine.",
+  },
+  {
+    title: "Avoid spam & malware",
+    body: "Always set a minimum size filter on the indexer (e.g. 100–500 MB for video, ~3 MB for music tracks). That removes most spam posts.",
+  },
+  {
+    title: "Incomplete or password-protected releases",
+    body: "Prefer results that are complete (e.g. NZBIndex “parts available: 20 / 20”). On Binsearch, check the completion bar percentage.",
+  },
+];
+
 export const DEFAULT_GRAB_EXTENSION_LIMITS: ExtensionSizeLimit[] = [
   { ext: ".mp3", minBytes: 3 * 1024 * 1024, maxBytes: 80 * 1024 * 1024 },
   { ext: ".flac", minBytes: 10 * 1024 * 1024, maxBytes: 500 * 1024 * 1024 },
@@ -88,7 +117,20 @@ export type AppSettings = {
   completedGrabKeepDays: number;
   infoPopupEnabled: boolean;
   infoPopupMode: "once" | "always" | "disabled";
+  infoPopupTitle: string;
   infoPopupText: string;
+  /** UI language code — see locales/*.json */
+  uiLanguage: string;
+  /**
+   * Cap non-admin throughput when downloading finished files from Snatcharr (Mbit/s).
+   * Does not limit grab/queue to the download client. 0 = unlimited. Admins never throttled.
+   */
+  userDownloadSpeedLimitMbit: number;
+  /**
+   * When debug mode is on, skip real Prowlarr/SABnzbd calls and use fixtures.
+   * Ignored unless isDebugEnabled().
+   */
+  debugMockExternal: boolean;
   setupCompleted: boolean;
   backgroundTasks: BackgroundTask[];
   maxResults: number;
@@ -134,6 +176,12 @@ export type AppSettings = {
   autoDeleteAfterDays?: number;
   /** Container path for completed grab files. App data path is fixed via lib/paths.ts. */
   downloadDir: string;
+  /** Editable Upload NZB page — sites list + tips (admin edits on /upload). */
+  uploadNzbSitesHeading: string;
+  uploadNzbSitesIntro: string;
+  uploadNzbSites: UploadNzbSite[];
+  uploadNzbTipsHeading: string;
+  uploadNzbTips: UploadNzbTip[];
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -144,7 +192,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   completedGrabKeepDays: 7,
   infoPopupEnabled: false,
   infoPopupMode: "disabled",
+  infoPopupTitle: "",
   infoPopupText: "",
+  uiLanguage: "en",
+  userDownloadSpeedLimitMbit: 0,
+  debugMockExternal: false,
   setupCompleted: false,
   backgroundTasks: DEFAULT_BACKGROUND_TASKS,
   maxResults: 100,
@@ -176,6 +228,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   grabEmailBody:
     "Hi $user,\n\nYour download **$requestedgrab** ($size) is ready.\n\n$passwordblock\nBrowse or download your files here: $grablink",
   downloadDir: "/downloads",
+  uploadNzbSitesHeading: "Where to find NZBs?",
+  uploadNzbSitesIntro:
+    'These sites are commonly used — you may find a lot, but that does not mean content is safe. No guarantee at all.',
+  uploadNzbSites: DEFAULT_UPLOAD_NZB_SITES,
+  uploadNzbTipsHeading: "Tips for better search results",
+  uploadNzbTips: DEFAULT_UPLOAD_NZB_TIPS,
 };
 
 export function migrateLegacySettings(raw: Record<string, unknown>): Record<string, unknown> {
@@ -263,6 +321,22 @@ export function migrateLegacySettings(raw: Record<string, unknown>): Record<stri
   }
   if (raw.authFallbackMethod === undefined) {
     raw.authFallbackMethod = DEFAULT_SETTINGS.authFallbackMethod;
+  }
+
+  if (!Array.isArray(raw.uploadNzbSites) || raw.uploadNzbSites.length === 0) {
+    raw.uploadNzbSites = DEFAULT_UPLOAD_NZB_SITES;
+  }
+  if (!Array.isArray(raw.uploadNzbTips) || raw.uploadNzbTips.length === 0) {
+    raw.uploadNzbTips = DEFAULT_UPLOAD_NZB_TIPS;
+  }
+  if (typeof raw.uploadNzbSitesHeading !== "string" || !raw.uploadNzbSitesHeading) {
+    raw.uploadNzbSitesHeading = DEFAULT_SETTINGS.uploadNzbSitesHeading;
+  }
+  if (typeof raw.uploadNzbSitesIntro !== "string" || !raw.uploadNzbSitesIntro) {
+    raw.uploadNzbSitesIntro = DEFAULT_SETTINGS.uploadNzbSitesIntro;
+  }
+  if (typeof raw.uploadNzbTipsHeading !== "string" || !raw.uploadNzbTipsHeading) {
+    raw.uploadNzbTipsHeading = DEFAULT_SETTINGS.uploadNzbTipsHeading;
   }
 
   return raw;

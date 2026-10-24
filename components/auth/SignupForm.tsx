@@ -5,17 +5,15 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Loader2, UserPlus, MailCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  SIGNUP_PASSWORD_HINT,
-  isValidSignupEmail,
-  meetsSignupPassword,
-} from "@/lib/password-policy";
+import { isValidSignupEmail, meetsSignupPassword } from "@/lib/password-policy";
+import { useT } from "@/lib/i18n/client";
 
 interface SignupFormProps {
   requireEmail?: boolean;
 }
 
 export default function SignupForm({ requireEmail = false }: SignupFormProps) {
+  const t = useT();
   const [loading, setLoading] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -30,7 +28,7 @@ export default function SignupForm({ requireEmail = false }: SignupFormProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (password !== confirmPassword) {
-      toast.error("Passwords do not match");
+      toast.error(t("auth.passwordsDoNotMatch"));
       return;
     }
 
@@ -52,7 +50,7 @@ export default function SignupForm({ requireEmail = false }: SignupFormProps) {
         verificationEmailSent?: boolean;
       };
       if (!response.ok) {
-        toast.error(data.error ?? "Registration failed");
+        toast.error(data.error ?? t("auth.registrationFailed"));
         return;
       }
 
@@ -62,10 +60,10 @@ export default function SignupForm({ requireEmail = false }: SignupFormProps) {
         return;
       }
 
-      toast.success(data.message ?? "Account created — please sign in");
+      toast.success(data.message ?? t("auth.accountCreated"));
       window.location.href = "/login";
     } catch {
-      toast.error("Registration failed");
+      toast.error(t("auth.registrationFailed"));
     } finally {
       setLoading(false);
     }
@@ -77,17 +75,15 @@ export default function SignupForm({ requireEmail = false }: SignupFormProps) {
         <div className="flex justify-center">
           <MailCheck className="h-12 w-12 text-primary" />
         </div>
-        <h2 className="text-lg font-semibold">Verify your email</h2>
+        <h2 className="text-lg font-semibold">{t("auth.verifyEmailTitle")}</h2>
         <p className="text-sm text-muted-foreground">
-          We sent a verification link to{" "}
-          <span className="text-foreground font-medium">{sentToEmail}</span>.
-          Please check your inbox and confirm your address before signing in.
+          {t("auth.verifyEmailBody", { email: sentToEmail })}
         </p>
         <Link
           href="/login"
           className="inline-flex items-center justify-center w-full px-4 py-2.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90"
         >
-          Go to sign in
+          {t("auth.goToSignIn")}
         </Link>
       </div>
     );
@@ -97,7 +93,7 @@ export default function SignupForm({ requireEmail = false }: SignupFormProps) {
     <div className="nv-card p-6">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <label className="nv-label">Username</label>
+          <label className="nv-label">{t("auth.username")}</label>
           <input
             className="nv-input w-full"
             value={username}
@@ -108,7 +104,7 @@ export default function SignupForm({ requireEmail = false }: SignupFormProps) {
           />
         </div>
         <div className="space-y-2">
-          <label className="nv-label">Password</label>
+          <label className="nv-label">{t("auth.password")}</label>
           <input
             className={cn(
               "nv-input w-full transition-colors",
@@ -127,11 +123,11 @@ export default function SignupForm({ requireEmail = false }: SignupFormProps) {
               passwordOk ? "text-green-500" : "text-muted-foreground",
             )}
           >
-            {SIGNUP_PASSWORD_HINT}
+            {t("auth.passwordHint")}
           </p>
         </div>
         <div className="space-y-2">
-          <label className="nv-label">Confirm password</label>
+          <label className="nv-label">{t("auth.confirmPassword")}</label>
           <input
             className="nv-input w-full"
             type="password"
@@ -143,7 +139,9 @@ export default function SignupForm({ requireEmail = false }: SignupFormProps) {
           />
         </div>
         <div className="space-y-2">
-          <label className="nv-label">Email{requireEmail ? " *" : " (optional)"}</label>
+          <label className="nv-label">
+            {requireEmail ? t("auth.emailRequired") : t("auth.emailOptional")}
+          </label>
           <input
             className={cn(
               "nv-input w-full transition-colors",
@@ -163,13 +161,13 @@ export default function SignupForm({ requireEmail = false }: SignupFormProps) {
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-          {loading ? "Creating account…" : "Sign Up"}
+          {loading ? t("auth.creatingAccount") : t("auth.signUp")}
         </button>
       </form>
       <p className="text-center text-sm text-muted-foreground mt-4">
-        Already have an account?{" "}
+        {t("auth.alreadyHaveAccount")}{" "}
         <Link href="/login" className="text-primary hover:underline">
-          Sign in
+          {t("auth.signInLink")}
         </Link>
       </p>
     </div>

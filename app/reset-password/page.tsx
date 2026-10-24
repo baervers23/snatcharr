@@ -2,11 +2,13 @@ import { Suspense } from "react";
 import Image from "next/image";
 import { getConfig } from "@/lib/config";
 import ResetPasswordForm from "@/components/auth/ResetPasswordForm";
+import { createTranslator } from "@/lib/i18n/server";
 
 export const metadata = { title: "Reset Password | Snatcharr" };
 
-export default function ResetPasswordPage() {
+export default async function ResetPasswordPage() {
   const config = getConfig();
+  const t = await createTranslator();
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -16,9 +18,9 @@ export default function ResetPasswordPage() {
             <Image src="/logo.png" alt="Snatcharr logo" width={96} height={96} className="rounded-2xl" priority />
             <h1 className="text-2xl font-bold">{config.instanceName}</h1>
           </div>
-          <p className="text-sm text-muted-foreground">Choose a new password</p>
+          <p className="text-sm text-muted-foreground">{t("auth.resetSubtitle")}</p>
         </div>
-        <Suspense fallback={<div className="nv-card p-6 text-center text-sm text-muted-foreground">Loading…</div>}>
+        <Suspense fallback={<div className="nv-card p-6 text-center text-sm text-muted-foreground">{t("common.loading")}</div>}>
           <ResetPasswordForm />
         </Suspense>
       </div>

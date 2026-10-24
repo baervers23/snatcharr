@@ -8,6 +8,7 @@ import { disksAreSame, getAppDiskUsage, getDownloadDiskUsage } from "@/lib/disk"
 import { SETUP_ADMIN_ID } from "@/lib/setup-prefill";
 import { APP_VERSION } from "@/lib/app-version";
 import { getAppUpdateStatus } from "@/lib/app-update";
+import { isDebugEnabled } from "@/lib/debug-mode";
 export const metadata = { title: "System | Snatcharr" };
 function getUptime(): string {
   const s = process.uptime();
@@ -53,6 +54,7 @@ export default async function SystemPage() {
       externalApps={apps}
       settings={settings}
       canDownloadBackup={session.user.id === SETUP_ADMIN_ID}
+      debugEnabled={isDebugEnabled()}
     />
   );
 }

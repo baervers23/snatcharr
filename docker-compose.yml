@@ -27,7 +27,7 @@ services:
     #   context: .
     #   dockerfile: Dockerfile
     #   args:
-    #     APP_VERSION: ${APP_VERSION:-0.9.3}
+    #     APP_VERSION: ${APP_VERSION:-0.9.4}
 
   # Example only — SABnzbd is usually managed separately. Uncomment to run alongside Snatcharr.
   # sabnzbd:

@@ -7,6 +7,7 @@ import { getSetting } from "@/lib/db/settings";
 import { AUTH_METHOD_INFO } from "@/lib/auth-methods";
 import type { AppSettings } from "@/lib/db/settings-shared";
 import { isSetupComplete } from "@/lib/setup-status";
+import { createTranslator } from "@/lib/i18n/server";
 
 export const metadata = { title: "Login | Snatcharr" };
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export default async function LoginPage({
 }) {
   const session = await auth();
   const params = await searchParams;
+  const t = await createTranslator();
 
   if (session?.user) {
     redirect(params.callbackUrl ?? "/search");
@@ -51,7 +53,7 @@ export default async function LoginPage({
             />
             <h1 className="text-3xl font-bold">{instanceName}</h1>
           </div>
-          <p className="text-sm text-muted-foreground">Sign in to your account</p>
+          <p className="text-sm text-muted-foreground">{t("auth.loginSubtitle")}</p>
         </div>
 
         <LoginForm
@@ -64,15 +66,15 @@ export default async function LoginPage({
 
         {(await getSetting("signupEnabled")) && (
           <p className="text-center text-sm text-muted-foreground mt-4">
-            No account?{" "}
+            {t("auth.noAccount")}{" "}
             <a href="/signup" className="text-primary hover:underline">
-              Sign up
+              {t("auth.signUp")}
             </a>
           </p>
         )}
 
         <p className="text-center text-xs text-muted-foreground mt-4">
-          Access restricted to authorized users only.
+          {t("auth.accessRestricted")}
         </p>
       </div>
     </div>

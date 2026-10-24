@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { X, Download, Loader2 } from "lucide-react";
 import { formatBytes } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 import type { ProwlarrSearchResult } from "@/lib/prowlarr";
 
 interface DownloadClient {
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export default function GrabConfirmModal({ result, onClose, onConfirm }: Props) {
+  const t = useT();
   const [clients, setClients] = useState<DownloadClient[]>([]);
   const [selectedClient, setSelectedClient] = useState<string>("");
   const [loadingClients, setLoadingClients] = useState(true);
@@ -48,7 +50,7 @@ export default function GrabConfirmModal({ result, onClose, onConfirm }: Props) 
       >
         <div className="flex items-center gap-2 p-4 border-b border-border">
           <Download className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold">Confirm Grab</h3>
+          <h3 className="font-semibold">{t("search.confirmTitle")}</h3>
           <button
             onClick={onClose}
             className="ml-auto text-muted-foreground hover:text-foreground"
@@ -66,16 +68,14 @@ export default function GrabConfirmModal({ result, onClose, onConfirm }: Props) 
           </div>
 
           <div className="space-y-2">
-            <label className="nv-label">Send to Download Client</label>
+            <label className="nv-label">{t("search.sendToClient")}</label>
             {loadingClients ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading clients...
+                {t("search.loadingClients")}
               </div>
             ) : clients.length === 0 ? (
-              <p className="text-sm text-destructive">
-                No download clients configured. Add one in Settings → Download Clients.
-              </p>
+              <p className="text-sm text-destructive">{t("search.noClients")}</p>
             ) : (
               <select
                 className="nv-input w-full"
@@ -84,7 +84,8 @@ export default function GrabConfirmModal({ result, onClose, onConfirm }: Props) 
               >
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.type}){c.isDefault ? " — default" : ""}
+                    {c.name} ({c.type})
+                    {c.isDefault ? ` — ${t("common.default")}` : ""}
                   </option>
                 ))}
               </select>
@@ -97,7 +98,7 @@ export default function GrabConfirmModal({ result, onClose, onConfirm }: Props) 
             onClick={onClose}
             className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             onClick={() => selectedClient && onConfirm(selectedClient)}
@@ -105,7 +106,7 @@ export default function GrabConfirmModal({ result, onClose, onConfirm }: Props) 
             className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             <Download className="h-4 w-4" />
-            Grab
+            {t("search.grab")}
           </button>
         </div>
       </div>

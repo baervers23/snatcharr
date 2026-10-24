@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
+import { I18nProvider } from "@/lib/i18n/client";
+import { getDictionary } from "@/lib/i18n/server";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -11,11 +13,15 @@ export const metadata: Metadata = {
   icons: { icon: "/favicon.ico" },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const { locale, dictionary } = await getDictionary();
+
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang={locale} className="dark" suppressHydrationWarning>
       <body className={`${inter.variable} min-h-screen font-sans antialiased`}>
-        {children}
+        <I18nProvider locale={locale} dictionary={dictionary}>
+          {children}
+        </I18nProvider>
         <Toaster
           theme="dark"
           position="bottom-right"

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import ResultDetailModal from "./ResultDetailModal";
 import GrabConfirmModal from "./GrabConfirmModal";
 import type { ProwlarrSearchResult } from "@/lib/prowlarr";
+import { useT } from "@/lib/i18n/client";
 
 interface SearchResult extends ProwlarrSearchResult {
   id: string;
@@ -24,6 +25,7 @@ export default function SearchView({
   canPickDownloader?: boolean;
   enabledCategories?: string[];
 }) {
+  const t = useT();
   const visibleGroups = enabledCategories
     ? CATEGORY_GROUPS.filter((g) => enabledCategories.includes(g.label))
     : CATEGORY_GROUPS;
@@ -162,20 +164,20 @@ export default function SearchView({
         if (data.pageSize) setPageSize(data.pageSize);
 
         if (!response.ok) {
-          toast.error(data.error ?? "Search failed");
+          toast.error(data.error ?? t("search.failed"));
           setResults([]);
           return;
         }
 
         setResults((data.results ?? []).map((r, i) => ({ ...r, id: r.guid ?? String(i) })));
       } catch {
-        toast.error("Search failed. Please try again.");
+        toast.error(t("search.failedRetry"));
         setResults([]);
       } finally {
         setLoading(false);
       }
     },
-    [query, selectedGroup, selectedSubs],
+    [query, selectedGroup, selectedSubs, t],
   );
 
   const handleGrab = async (result: SearchResult) => {
@@ -188,7 +190,7 @@ export default function SearchView({
 
   const confirmGrab = async (result: SearchResult, clientId?: string) => {
     if (grabbedGuids.has(result.guid) || grabbingId === result.id) {
-      toast.info("Already grabbed");
+      toast.info(t("search.alreadyGrabbed"));
       return;
     }
     setGrabTarget(null);
@@ -215,14 +217,14 @@ export default function SearchView({
 
       const data = (await response.json()) as { error?: string };
       if (!response.ok) {
-        toast.error(data.error ?? "Grab failed");
+        toast.error(data.error ?? t("search.grabFailed"));
         return;
       }
 
       setGrabbedGuids((prev) => new Set(prev).add(result.guid));
-      toast.success(`Grab started — "${result.title}" queued for download`);
+      toast.success(t("search.grabStarted", { title: result.title }));
     } catch {
-      toast.error("Grab failed. Please try again.");
+      toast.error(t("search.grabFailedRetry"));
     } finally {
       setGrabbingId(null);
     }
@@ -241,7 +243,7 @@ export default function SearchView({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="What are you looking for?"
+              placeholder={t("search.placeholder")}
               autoFocus
             />
             {query && (
@@ -260,7 +262,7 @@ export default function SearchView({
             className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-md font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-            <span className="hidden sm:inline">Search</span>
+            <span className="hidden sm:inline">{t("search.button")}</span>
           </button>
         </div>
       </form>
@@ -268,7 +270,7 @@ export default function SearchView({
       {/* Main category chips */}
       <div className="flex flex-wrap gap-2 items-center">
         <span className="text-xs text-muted-foreground flex items-center gap-1">
-          <Filter className="h-3 w-3" /> Categories:
+          <Filter className="h-3 w-3" /> {t("search.categories")}
         </span>
         {visibleGroups.map((group) => {
           const active = selectedGroup?.label === group.label;
@@ -296,7 +298,7 @@ export default function SearchView({
             }}
             className="px-2 py-1 text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1"
           >
-            <X className="h-3 w-3" /> Clear
+            <X className="h-3 w-3" /> {t("common.clear")}
           </button>
         )}
       </div>
@@ -330,7 +332,7 @@ export default function SearchView({
               }}
               className="px-2 py-0.5 text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1"
             >
-              <X className="h-3 w-3" /> Reset
+              <X className="h-3 w-3" /> {t("common.reset")}
             </button>
           )}
         </div>
@@ -341,7 +343,9 @@ export default function SearchView({
         <div className="flex items-center justify-center py-20">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">{isAdmin ? "Searching indexers..." : "Searching..."}</p>
+            <p className="text-sm text-muted-foreground">
+              {isAdmin ? t("search.searchingIndexers") : t("search.searching")}
+            </p>
           </div>
         </div>
       )}
@@ -349,15 +353,15 @@ export default function SearchView({
       {!loading && searched && results.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Search className="h-12 w-12 text-muted-foreground/30 mb-4" />
-          <p className="text-muted-foreground">No results found for &quot;{query}&quot;</p>
-          <p className="text-sm text-muted-foreground/60 mt-1">Try different keywords or categories</p>
+          <p className="text-muted-foreground">{t("search.noResults", { query })}</p>
+          <p className="text-sm text-muted-foreground/60 mt-1">{t("search.tryDifferent")}</p>
         </div>
       )}
 
       {!loading && !searched && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Search className="h-16 w-16 text-muted-foreground/20 mb-4" />
-          <p className="text-muted-foreground">Enter a search term to find NZBs</p>
+          <p className="text-muted-foreground">{t("search.enterTerm")}</p>
         </div>
       )}
 
@@ -365,14 +369,19 @@ export default function SearchView({
         <div className="nv-card overflow-hidden">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
             <span className="text-sm font-medium">
-              {results.length} results
+              {t("search.resultsCount", { count: results.length })}
               {totalPages > 1 && (
-                <span className="text-muted-foreground font-normal"> · page {currentPage}/{totalPages}</span>
+                <span className="text-muted-foreground font-normal">
+                  {t("search.pageOf", { current: currentPage, total: totalPages })}
+                </span>
               )}
             </span>
             {effectiveCategories.length > 0 && (
               <span className="text-xs text-muted-foreground">
-                Filtered by {effectiveCategories.length} categor{effectiveCategories.length > 1 ? "ies" : "y"}
+                {t(
+                  effectiveCategories.length > 1 ? "search.filteredByMany" : "search.filteredByOne",
+                  { count: effectiveCategories.length },
+                )}
               </span>
             )}
           </div>
@@ -381,21 +390,21 @@ export default function SearchView({
             <table className="nv-table">
               <thead>
                 <tr>
-                  <SortHeader label="Title" sortKey="title" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortHeader label="Category" sortKey="category" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="hidden md:table-cell" />
-                  <SortHeader label="Age" sortKey="age" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="hidden sm:table-cell" />
-                  <SortHeader label="Size" sortKey="size" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label={t("common.title")} sortKey="title" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label={t("common.category")} sortKey="category" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="hidden md:table-cell" />
+                  <SortHeader label={t("common.age")} sortKey="age" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="hidden sm:table-cell" />
+                  <SortHeader label={t("common.size")} sortKey="size" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                   {isAdmin && (
-                    <th className="hidden lg:table-cell text-xs text-muted-foreground">Indexer</th>
+                    <th className="hidden lg:table-cell text-xs text-muted-foreground">{t("common.indexer")}</th>
                   )}
                   <SortHeader
-                    label={isAdmin ? "Indexer Grabs" : "Grabs"}
+                    label={isAdmin ? t("search.indexerGrabs") : t("common.grabs")}
                     sortKey="grabs"
                     activeKey={sortKey}
                     dir={sortDir}
                     onSort={toggleSort}
                   />
-                  <th className="text-right">Action</th>
+                  <th className="text-right">{t("common.actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -421,17 +430,21 @@ export default function SearchView({
                 disabled={currentPage <= 1}
                 className="px-3 py-1.5 text-sm border border-border rounded-md hover:bg-accent disabled:opacity-40 transition-colors"
               >
-                Previous
+                {t("common.previous")}
               </button>
               <span className="text-xs text-muted-foreground">
-                Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, sortedResults.length)} of {sortedResults.length}
+                {t("common.showing", {
+                  from: (currentPage - 1) * pageSize + 1,
+                  to: Math.min(currentPage * pageSize, sortedResults.length),
+                  total: sortedResults.length,
+                })}
               </span>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage >= totalPages}
                 className="px-3 py-1.5 text-sm border border-border rounded-md hover:bg-accent disabled:opacity-40 transition-colors"
               >
-                Next
+                {t("common.next")}
               </button>
             </div>
           )}
@@ -511,6 +524,7 @@ function ResultRow({
   isGrabbing: boolean;
   alreadyGrabbed: boolean;
 }) {
+  const t = useT();
   const ageSeconds = result.publishDate
     ? Math.floor((Date.now() - new Date(result.publishDate).getTime()) / 1000)
     : 0;
@@ -582,7 +596,7 @@ function ResultRow({
               : "bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground",
           )}
         >
-          {isGrabbing ? <Loader2 className="h-3 w-3 animate-spin" /> : alreadyGrabbed ? "Grabbed" : "Grab"}
+          {isGrabbing ? <Loader2 className="h-3 w-3 animate-spin" /> : alreadyGrabbed ? t("search.grabbed") : t("search.grab")}
         </button>
       </td>
     </tr>

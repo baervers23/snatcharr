@@ -1,11 +1,13 @@
 import Image from "next/image";
 import { getConfig } from "@/lib/config";
 import ForgotPasswordForm from "@/components/auth/ForgotPasswordForm";
+import { createTranslator } from "@/lib/i18n/server";
 
 export const metadata = { title: "Forgot Password | Snatcharr" };
 
-export default function ForgotPasswordPage() {
+export default async function ForgotPasswordPage() {
   const config = getConfig();
+  const t = await createTranslator();
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -15,7 +17,7 @@ export default function ForgotPasswordPage() {
             <Image src="/logo.png" alt="Snatcharr logo" width={96} height={96} className="rounded-2xl" priority />
             <h1 className="text-2xl font-bold">{config.instanceName}</h1>
           </div>
-          <p className="text-sm text-muted-foreground">Recover your account</p>
+          <p className="text-sm text-muted-foreground">{t("auth.forgotSubtitle")}</p>
         </div>
         <ForgotPasswordForm />
       </div>

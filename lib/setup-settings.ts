@@ -8,6 +8,8 @@ export type SetupGeneralSettings = {
   requireAppGrant: boolean;
   maxSearchRequestsPerUserPerDay: number;
   maxGrabsPerUserPerDay: number;
+  uiLanguage: string;
+  userDownloadSpeedLimitMbit: number;
   warningOnOpen: "once" | "always" | "disabled";
   importantPopupText: string;
 };
@@ -30,6 +32,8 @@ export function generalFromConfig(config: AppConfig): SetupGeneralSettings {
     requireAppGrant: requireAppGrantFromConfig(config),
     maxSearchRequestsPerUserPerDay: config.maxSearchRequestsPerUserPerDay ?? 0,
     maxGrabsPerUserPerDay: config.maxGrabsPerUserPerDay ?? 0,
+    uiLanguage: config.uiLanguage ?? "en",
+    userDownloadSpeedLimitMbit: config.userDownloadSpeedLimitMbit ?? 0,
     warningOnOpen: config.warningOnOpen,
     importantPopupText: config.importantPopupText,
   };
@@ -48,6 +52,9 @@ export function mergeGeneralFromDb(
     maxSearchRequestsPerUserPerDay:
       db.maxSearchRequestsPerUserPerDay ?? fromConfig.maxSearchRequestsPerUserPerDay,
     maxGrabsPerUserPerDay: db.maxGrabsPerUserPerDay ?? fromConfig.maxGrabsPerUserPerDay,
+    uiLanguage: db.uiLanguage ?? fromConfig.uiLanguage,
+    userDownloadSpeedLimitMbit:
+      db.userDownloadSpeedLimitMbit ?? fromConfig.userDownloadSpeedLimitMbit,
     warningOnOpen:
       db.infoPopupMode ??
       (db.infoPopupEnabled === false
@@ -67,6 +74,8 @@ export function generalToDbSettings(gs: SetupGeneralSettings): Partial<AppSettin
     requireAppGrant: gs.requireAppGrant,
     maxSearchRequestsPerUserPerDay: gs.maxSearchRequestsPerUserPerDay,
     maxGrabsPerUserPerDay: gs.maxGrabsPerUserPerDay,
+    uiLanguage: gs.uiLanguage,
+    userDownloadSpeedLimitMbit: gs.userDownloadSpeedLimitMbit,
     infoPopupEnabled: gs.warningOnOpen !== "disabled",
     infoPopupMode: gs.warningOnOpen,
     infoPopupText: gs.importantPopupText,
@@ -82,6 +91,8 @@ export function generalToConfigPatch(gs: SetupGeneralSettings): Partial<AppConfi
     requireAppGrant: gs.requireAppGrant,
     maxSearchRequestsPerUserPerDay: gs.maxSearchRequestsPerUserPerDay,
     maxGrabsPerUserPerDay: gs.maxGrabsPerUserPerDay,
+    uiLanguage: gs.uiLanguage,
+    userDownloadSpeedLimitMbit: gs.userDownloadSpeedLimitMbit,
     warningOnOpen: gs.warningOnOpen,
     importantPopupText: gs.importantPopupText,
   };

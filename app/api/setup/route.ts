@@ -8,7 +8,11 @@ import {
 import { getConfig } from "@/lib/config";
 import { setManySettings } from "@/lib/db/settings";
 import { saveSetupComplete, saveSetupDraft, SETUP_COOKIE } from "@/lib/setup-config";
-import { getSetupPrefillData, SETUP_ADMIN_ID } from "@/lib/setup-prefill";
+import {
+  getSetupPrefillData,
+  prefillFromUploadedConfig,
+  SETUP_ADMIN_ID,
+} from "@/lib/setup-prefill";
 import { generalToDbSettings } from "@/lib/setup-settings";
 import { DEFAULT_PROWLARR_SEARCH_TAGS, serializeProwlarrTags } from "@/lib/prowlarr-tags";
 import bcrypt from "bcryptjs";
@@ -21,6 +25,13 @@ const adminSchema = z.object({
   username: z.string().min(2).max(50),
   password: z.string().min(8),
   confirmPassword: z.string(),
+});
+
+/** On complete, password is optional if the admin was already created in step 1. */
+const completeAdminSchema = z.object({
+  username: z.string().min(2).max(50),
+  password: z.string().default(""),
+  confirmPassword: z.string().default(""),
 });
 
 const authMethodSchema = z.enum([
@@ -40,15 +51,17 @@ const generalSettingsSchema = z.object({
   signupEnabled: z.boolean().default(false),
   requireEmail: z.boolean().default(false),
   requireAppGrant: z.boolean().default(false),
-  maxSearchRequestsPerUserPerDay: z.number().int().min(0).default(0),
-  maxGrabsPerUserPerDay: z.number().int().min(0).default(0),
+  maxSearchRequestsPerUserPerDay: z.coerce.number().int().min(0).default(0),
+  maxGrabsPerUserPerDay: z.coerce.number().int().min(0).default(0),
+  uiLanguage: z.string().min(2).max(8).default("en"),
+  userDownloadSpeedLimitMbit: z.coerce.number().min(0).default(0),
   warningOnOpen: z.enum(["once", "always", "disabled"]).default("disabled"),
   importantPopupText: z.string().default(""),
 });
 
 const setupSchema = z.object({
   action: z.literal("complete"),
-  admin: adminSchema,
+  admin: completeAdminSchema,
   indexers: z
     .array(
       z.object({
@@ -267,6 +280,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, userId: SETUP_ADMIN_ID });
     }
 
+    if (body.action === "importConfig") {
+      const config = getConfig();
+      if (config.setupComplete) {
+        return NextResponse.json({ error: "Setup already completed" }, { status: 400 });
+      }
+      const { hasPrimaryLocalAdminSync, adminNeedsPasswordSync } = await import(
+        "@/lib/setup-status"
+      );
+      if (!hasPrimaryLocalAdminSync() || adminNeedsPasswordSync()) {
+        return NextResponse.json({ error: "Create an admin account first" }, { status: 403 });
+      }
+      try {
+        const prefill = prefillFromUploadedConfig(body.config);
+        return NextResponse.json(prefill);
+      } catch {
+        return NextResponse.json({ error: "Invalid config.json" }, { status: 422 });
+      }
+    }
+
     if (body.action === "saveProgress") {
       const config = getConfig();
       if (config.setupComplete) {
@@ -296,13 +328,37 @@ export async function POST(req: NextRequest) {
 
       const { admin, indexers, clients, apps, generalSettings } = parsed.data;
 
-      try {
-        await upsertSetupAdmin(admin);
-      } catch (err) {
-        if (err instanceof Error && err.message === "PASSWORDS_MISMATCH") {
-          return NextResponse.json({ error: "Passwords do not match" }, { status: 400 });
+      const { hasPrimaryLocalAdminSync } = await import("@/lib/setup-status");
+      const adminExists = hasPrimaryLocalAdminSync();
+      const wantsPasswordUpdate = admin.password.length > 0;
+
+      if (wantsPasswordUpdate) {
+        if (admin.password.length < 8) {
+          return NextResponse.json(
+            { error: "Password must be at least 8 characters" },
+            { status: 400 },
+          );
         }
-        throw err;
+        try {
+          await upsertSetupAdmin({
+            username: admin.username,
+            password: admin.password,
+            confirmPassword: admin.confirmPassword || admin.password,
+          });
+        } catch (err) {
+          if (err instanceof Error && err.message === "PASSWORDS_MISMATCH") {
+            return NextResponse.json({ error: "Passwords do not match" }, { status: 400 });
+          }
+          throw err;
+        }
+      } else if (!adminExists) {
+        return NextResponse.json(
+          { error: "Create a local admin before completing setup" },
+          { status: 400 },
+        );
+      } else {
+        // Keep existing admin password; sync username into draft/config only.
+        saveSetupDraft({ adminUsername: admin.username });
       }
 
       const now = new Date();

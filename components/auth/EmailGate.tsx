@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Mail, Loader2, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n/client";
 
 type Mode = "missing" | "pending";
 
@@ -19,6 +20,7 @@ export default function EmailGate({
   smtpEnabled?: boolean;
   syncAppsEnabled?: boolean;
 }) {
+  const t = useT();
   const [value, setValue] = useState(email ?? "");
   const [saving, setSaving] = useState(false);
   const [resending, setResending] = useState(false);
@@ -27,7 +29,7 @@ export default function EmailGate({
     e.preventDefault();
     if (!value.trim()) return;
     if (!smtpEnabled) {
-      toast.error("SMTP is not configured — ask an admin to enable Settings → Email or use Jellyfin/Seerr login");
+      toast.error(t("auth.smtpNotConfigured"));
       return;
     }
     setSaving(true);
@@ -38,11 +40,11 @@ export default function EmailGate({
         body: JSON.stringify({ email: value.trim() }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Save failed");
-      toast.success("Email saved — check your inbox to verify");
+      if (!res.ok) throw new Error(data.error ?? t("auth.saveFailed"));
+      toast.success(t("auth.emailSavedCheckInbox"));
       window.location.reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save email");
+      toast.error(err instanceof Error ? err.message : t("auth.failedToSaveEmail"));
     } finally {
       setSaving(false);
     }
@@ -50,17 +52,17 @@ export default function EmailGate({
 
   async function resendVerification() {
     if (!smtpEnabled) {
-      toast.error("SMTP is not configured — use Jellyfin/Seerr login or ask an admin to approve your email");
+      toast.error(t("auth.smtpNotConfiguredResend"));
       return;
     }
     setResending(true);
     try {
       const res = await fetch("/api/profile/verify-email", { method: "POST" });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Failed to send");
-      toast.success("Verification email sent");
+      if (!res.ok) throw new Error(data.error ?? t("auth.failedToSend"));
+      toast.success(t("auth.verificationEmailSent"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to resend");
+      toast.error(err instanceof Error ? err.message : t("auth.failedToResend"));
     } finally {
       setResending(false);
     }
@@ -68,15 +70,15 @@ export default function EmailGate({
 
   const helpLines: string[] = [];
   if (syncAppsEnabled) {
-    helpLines.push("Log in via Jellyfin or Seerr to import and verify your email automatically.");
+    helpLines.push(t("auth.emailGateHelpSync"));
   }
   if (smtpEnabled) {
-    helpLines.push("Local accounts can verify by email (SMTP is configured).");
+    helpLines.push(t("auth.emailGateHelpSmtp"));
   }
   if (!smtpEnabled && !syncAppsEnabled) {
-    helpLines.push("Ask an admin to enable SMTP (Settings → Email) or a Jellyfin/Seerr sync app.");
+    helpLines.push(t("auth.emailGateHelpNeither"));
   }
-  helpLines.push("Admins can approve email under Users → edit.");
+  helpLines.push(t("auth.emailGateHelpAdmin"));
 
   if (mode === "pending") {
     return (
@@ -87,15 +89,15 @@ export default function EmailGate({
               <ShieldAlert className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold">Verify your email</h1>
+              <h1 className="text-lg font-semibold">{t("auth.emailGateVerify")}</h1>
               <p className="text-sm text-muted-foreground">
-                Hi {username}, access is restricted until your email is verified or approved by an admin.
+                {t("auth.emailGateHiPending", { username })}
               </p>
             </div>
           </div>
           {email && (
             <p className="text-sm">
-              Pending: <span className="font-mono">{email}</span>
+              {t("auth.emailGatePendingLabel")} <span className="font-mono">{email}</span>
             </p>
           )}
           {smtpEnabled ? (
@@ -106,12 +108,11 @@ export default function EmailGate({
               className="nv-btn-primary w-full flex items-center justify-center gap-2"
             >
               {resending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Resend verification email
+              {t("auth.resendVerification")}
             </button>
           ) : syncAppsEnabled ? (
             <p className="text-sm text-muted-foreground rounded-md border border-border px-3 py-2">
-              No SMTP configured. Sign out and log in again with <strong>Jellyfin</strong> or{" "}
-              <strong>Seerr</strong> to sync and verify your email.
+              {t("auth.emailGateNoSmtpSync")}
             </p>
           ) : null}
           <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
@@ -132,16 +133,15 @@ export default function EmailGate({
             <Mail className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold">Email required</h1>
+            <h1 className="text-lg font-semibold">{t("auth.emailGateTitle")}</h1>
             <p className="text-sm text-muted-foreground">
-              Hi {username}, an email address is required before you can continue.
+              {t("auth.emailGateHiMissing", { username })}
             </p>
           </div>
         </div>
         {syncAppsEnabled && !smtpEnabled ? (
           <p className="text-sm text-muted-foreground rounded-md border border-border px-3 py-2">
-            Sign out and log in with <strong>Jellyfin</strong> or <strong>Seerr</strong> to import your email
-            automatically.
+            {t("auth.emailGateSignOutSync")}
           </p>
         ) : null}
         {smtpEnabled ? (
@@ -150,7 +150,7 @@ export default function EmailGate({
               type="email"
               required
               className="nv-input w-full"
-              placeholder="you@example.com"
+              placeholder={t("auth.emailPlaceholder")}
               value={value}
               onChange={(e) => setValue(e.target.value)}
             />
@@ -160,7 +160,7 @@ export default function EmailGate({
               className="nv-btn-primary w-full flex items-center justify-center gap-2"
             >
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-              Save &amp; send verification
+              {t("auth.saveAndSend")}
             </button>
           </form>
         ) : null}

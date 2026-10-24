@@ -126,9 +126,60 @@ function hasStep5Data(config: AppConfig, general: SetupGeneralSettings): boolean
     general.requireAppGrant ||
     general.maxSearchRequestsPerUserPerDay > 0 ||
     general.maxGrabsPerUserPerDay > 0 ||
+    (general.uiLanguage !== "en" && !!general.uiLanguage) ||
+    general.userDownloadSpeedLimitMbit > 0 ||
     general.warningOnOpen !== "disabled" ||
     general.importantPopupText.length > 0
   );
+}
+
+/** Map an uploaded config.json object into wizard prefill (does not read disk). */
+export function prefillFromUploadedConfig(raw: unknown): SetupPrefillData {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("INVALID_CONFIG");
+  }
+  const uploaded = raw as Partial<AppConfig>;
+  const config: AppConfig = {
+    setupComplete: uploaded.setupComplete === true,
+    instanceName: typeof uploaded.instanceName === "string" ? uploaded.instanceName : "Snatcharr",
+    adminUsername: typeof uploaded.adminUsername === "string" ? uploaded.adminUsername : undefined,
+    authMethod: uploaded.authMethod,
+    allowGuestRegister: uploaded.allowGuestRegister === true,
+    emailRequired: uploaded.emailRequired === true,
+    requireAppGrant: uploaded.requireAppGrant,
+    usersNeedSearchGrant: uploaded.usersNeedSearchGrant,
+    usersNeedGrabGrant: uploaded.usersNeedGrabGrant,
+    maxSearchRequestsPerUserPerDay: uploaded.maxSearchRequestsPerUserPerDay ?? 0,
+    maxGrabsPerUserPerDay: uploaded.maxGrabsPerUserPerDay ?? 0,
+    uiLanguage: typeof uploaded.uiLanguage === "string" ? uploaded.uiLanguage : "en",
+    userDownloadSpeedLimitMbit: uploaded.userDownloadSpeedLimitMbit ?? 0,
+    warningOnOpen: uploaded.warningOnOpen ?? "disabled",
+    importantPopupText:
+      typeof uploaded.importantPopupText === "string" ? uploaded.importantPopupText : "",
+    indexers: Array.isArray(uploaded.indexers) ? uploaded.indexers : [],
+    downloadClients: Array.isArray(uploaded.downloadClients) ? uploaded.downloadClients : [],
+    externalApps: Array.isArray(uploaded.externalApps) ? uploaded.externalApps : [],
+  };
+  const indexers = config.indexers.map(mapConfigIndexer);
+  const clients = config.downloadClients.map(mapConfigClient);
+  const apps = config.externalApps.map(mapConfigApp);
+  const generalSettings = generalFromConfig(config);
+  const adminUsername = config.adminUsername ?? "";
+
+  return {
+    adminUsername,
+    indexers,
+    clients,
+    apps,
+    generalSettings,
+    hasExistingData:
+      !!adminUsername ||
+      indexers.length > 0 ||
+      clients.length > 0 ||
+      apps.length > 0 ||
+      hasStep5Data(config, generalSettings),
+    loadedFromConfig: true,
+  };
 }
 
 export async function getSetupPrefillData(): Promise<SetupPrefillData> {

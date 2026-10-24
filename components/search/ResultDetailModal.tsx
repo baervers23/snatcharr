@@ -3,6 +3,7 @@
 import { X, Calendar, HardDrive, Download, Tag } from "lucide-react";
 import { formatBytes, formatAge } from "@/lib/utils";
 import type { ProwlarrSearchResult } from "@/lib/prowlarr";
+import { useT } from "@/lib/i18n/client";
 
 interface Props {
   result: ProwlarrSearchResult;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function ResultDetailModal({ result, showIndexer = false, onClose, onGrab }: Props) {
+  const t = useT();
   const ageSeconds = result.publishDate
     ? Math.floor((Date.now() - new Date(result.publishDate).getTime()) / 1000)
     : 0;
@@ -50,7 +52,7 @@ export default function ResultDetailModal({ result, showIndexer = false, onClose
                 }}
               />
             ) : (
-              <div className="text-sm text-muted-foreground text-center">No cover available</div>
+              <div className="text-sm text-muted-foreground text-center">{t("search.noCover")}</div>
             )}
           </div>
 
@@ -69,18 +71,22 @@ export default function ResultDetailModal({ result, showIndexer = false, onClose
             )}
 
             <div className="grid grid-cols-2 gap-4">
-              <MetaStat icon={Calendar} label="Age" value={formatAge(ageSeconds)} />
-              <MetaStat icon={HardDrive} label="Size" value={result.size ? formatBytes(result.size) : "—"} />
-              <MetaStat icon={Download} label={showIndexer ? "Indexer Grabs" : "Grabs"} value={String(result.grabs ?? 0)} />
+              <MetaStat icon={Calendar} label={t("common.age")} value={formatAge(ageSeconds)} />
+              <MetaStat icon={HardDrive} label={t("common.size")} value={result.size ? formatBytes(result.size) : "—"} />
+              <MetaStat
+                icon={Download}
+                label={showIndexer ? t("search.indexerGrabs") : t("common.grabs")}
+                value={String(result.grabs ?? 0)}
+              />
               {showIndexer && result.indexer && (
-                <MetaStat icon={Tag} label="Indexer" value={result.indexer} />
+                <MetaStat icon={Tag} label={t("common.indexer")} value={result.indexer} />
               )}
             </div>
 
             {result.description && (
               <div>
                 <h3 className="text-sm font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
-                  Description
+                  {t("common.description")}
                 </h3>
                 <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
                   {result.description}
@@ -95,14 +101,14 @@ export default function ResultDetailModal({ result, showIndexer = false, onClose
             onClick={onClose}
             className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            Close
+            {t("common.close")}
           </button>
           <button
             onClick={onGrab}
             className="flex items-center gap-2 px-6 py-2 bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:bg-primary/90 transition-colors"
           >
             <Download className="h-4 w-4" />
-            Grab this NZB
+            {t("search.grabThis")}
           </button>
         </div>
       </div>
